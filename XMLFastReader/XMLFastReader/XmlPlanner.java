@@ -108,7 +108,7 @@ public final class XmlPlanner {
         callback tagNameAccum = new callback() {
             public boolean call(XmlRunner r) {
                 byte[] src = r.planner.getSource();
-                r.linear[r.pointer++] = src[r.pointer];
+                r.linear[r.pointer - r.regionBegin] = src[r.pointer++];
                 return true;
             }
         };
@@ -142,17 +142,24 @@ public final class XmlPlanner {
             }
         };
         // Space, tab, newline, carriage return → end of tag name, enter attribute parsing
-        callback tagNameEnd = new callback() {
+        callback attrNameStart = new callback() {
             public boolean call(XmlRunner r) {
-                r.setInTag(false); // Actually we stay in tag but move to attr parsing
-                // Tag name complete in linear buffer
+                r.startAttrName();
                 return true;
             }
         };
-        TOC[inTag][' '] = tagNameEnd;
-        TOC[inTag]['\t'] = tagNameEnd;
-        TOC[inTag]['\n'] = tagNameEnd;
-        TOC[inTag]['\r'] = tagNameEnd;
+        TOC[inTag][' '] = attrNameStart;
+        TOC[inTag]['\t'] = attrNameStart;
+        TOC[inTag]['\n'] = attrNameStart;
+        TOC[inTag]['\r'] = attrNameStart;
+
+        // '=' ends attribute name
+        TOC[inTag]['='] = new callback() {
+            public boolean call(XmlRunner r) {
+                r.onEquals();
+                return true;
+            }
+        };
 
         // ===== 3. IN_TAG + CLOSE_TAG (flags=IN_TAG|CLOSE_TAG): Parsing close tag name =====
         int inCloseTag = IN_TAG | CLOSE_TAG;
@@ -164,10 +171,10 @@ public final class XmlPlanner {
                 return true;
             }
         };
-        TOC[inCloseTag][' '] = tagNameEnd;
-        TOC[inCloseTag]['\t'] = tagNameEnd;
-        TOC[inCloseTag]['\n'] = tagNameEnd;
-        TOC[inCloseTag]['\r'] = tagNameEnd;
+        TOC[inCloseTag][' '] = attrNameStart;
+        TOC[inCloseTag]['\t'] = attrNameStart;
+        TOC[inCloseTag]['\n'] = attrNameStart;
+        TOC[inCloseTag]['\r'] = attrNameStart;
 
         // ===== 4. IN_TAG + SPECIAL (flags=IN_TAG|SPECIAL): After <! or <? =====
         int inSpecial = IN_TAG | SPECIAL;
@@ -214,28 +221,6 @@ public final class XmlPlanner {
         // ===== 5b. CDATA section: <![CDATA[ ... ]]> =====
         // We'll handle CDATA end in parse loop by checking for "]]>"
         // State: IN_TAG | SPECIAL (but not SPECIAL_COMMENT)
-
-        // ===== 6. ATTRIBUTE PARSING: After tag name, before '>' =====
-        // State: IN_TAG (but not in tag name anymore)
-        // Whitespace after tag name or between attributes
-        callback attrNameStart = new callback() {
-            public boolean call(XmlRunner r) {
-                r.startAttrName();
-                return true;
-            }
-        };
-        TOC[inTag][' '] = attrNameStart;
-        TOC[inTag]['\t'] = attrNameStart;
-        TOC[inTag]['\n'] = attrNameStart;
-        TOC[inTag]['\r'] = attrNameStart;
-
-        // '=' ends attribute name
-        TOC[inTag]['='] = new callback() {
-            public boolean call(XmlRunner r) {
-                r.onEquals();
-                return true;
-            }
-        };
 
         // ===== 6. IN_TAG + IN_DQUOTE / IN_SQUOTE: Attribute value inside tag =====
         int inTagDQuote = IN_TAG | IN_DQUOTE;

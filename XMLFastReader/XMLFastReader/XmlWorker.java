@@ -50,29 +50,37 @@ public final class XmlWorker implements Runnable {
     public void run() {
         while (running) {
             int slot = runner.pull();
-            if (slot >= 0) {
-                int begin = runner.begin[slot];
-                int end = runner.end[slot];
-                String fn = runner.fileName[slot];
-                try {
-                    runner.parseRegion(begin, end, fn, event);
-                } catch (Exception e) {
-                    // เรียก global error handler ถ้ามี
-                    XmlCallback eh = runner.planner.getErrorHandler();
-                    if (eh != null) {
-                        event.reset();
-                        event.event = XmlEvent.Event.ERROR;
-                        event.token = null;
-                        // filename อยู่ใน event จาก FILE_BEGIN แล้ว
-                        eh.handle(event);
-                    }
-                } finally {
-                    // Reset state สำหรับไฟล์ถัดไป
-                    runner.resetState();
+            if (slot < 0) {
+                // Interrupted or shutdown
+                if (Thread.interrupted()) {
+                    running = false;
                 }
-            } else {
-                // Queue ว่าง — park รอ producer push
-                LockSupport.parkNanos(1_000_000); // 1ms
+                continue;
+            }
+            int begin = runner.begin[slot];
+            int end = runner.end[slot];
+            String fn = runner.fileName[slot];
+            
+            // Poison pill: begin < 0 signals shutdown
+            if (begin < 0) {
+                break;
+            }
+            
+            try {
+                runner.parseRegion(begin, end, fn, event);
+            } catch (Exception e) {
+                // เรียก global error handler ถ้ามี
+                XmlCallback eh = runner.planner.getErrorHandler();
+                if (eh != null) {
+                    event.reset();
+                    event.event = XmlEvent.Event.ERROR;
+                    event.token = null;
+                    // filename อยู่ใน event จาก FILE_BEGIN แล้ว
+                    eh.handle(event);
+                }
+            } finally {
+                // Reset state สำหรับไฟล์ถัดไป
+                runner.resetState();
             }
         }
     }
@@ -80,7 +88,8 @@ public final class XmlWorker implements Runnable {
     /** สั่งหยุด worker (เรียกจาก main thread) */
     public void shutdown() {
         running = false;
-        // Unpark ถ้ากำลัง park อยู่
-        Thread.currentThread().interrupt(); // Not needed, just for safety
+        // Unpark ถ้ากำลัง park อยู่ — ใช้ Thread.interrupt() บน worker thread
+        // หมายเหตุ: ต้องเรียกจากภายนอกผ่าน reference ของ worker thread
+        // XmlDispatcher จะ interrupt workerThreads โดยตรงใน cancel()
     }
 }

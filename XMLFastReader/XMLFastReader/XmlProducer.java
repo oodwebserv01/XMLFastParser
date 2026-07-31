@@ -75,8 +75,6 @@ final class SingleXmlProducer implements XmlProducer {
     public void produce(XmlDispatcher dispatcher) throws Exception {
         if (buffer.length > 0) {
             dispatcher.pushWork(0, buffer.length, filename);
-            // Wait for processing
-            Thread.sleep(100); // Give worker time to pick up
         }
     }
     
@@ -102,58 +100,27 @@ final class SingleXmlProducer implements XmlProducer {
 final class ZipXmlProducer implements XmlProducer {
     
     private final ZipInputStream zipStream;
-    private final byte[] sharedBuffer;
     private long totalFiles = 0;
     private long totalBytes = 0;
     
     ZipXmlProducer(InputStream inputStream) throws IOException {
         this.zipStream = new ZipInputStream(inputStream);
-        // For streaming ZIP, we can't know totals upfront
-        // We'll use a shared buffer that grows as needed
-        this.sharedBuffer = new byte[1024 * 1024]; // 1MB initial
     }
     
     @Override
     public void produce(XmlDispatcher dispatcher) throws Exception {
         ZipEntry entry;
-        int offset = 0;
         
         while ((entry = zipStream.getNextEntry()) != null) {
             if (entry.isDirectory()) continue;
             
-            // Read entry into buffer
-            int entrySize = (int) entry.getSize();
-            if (entrySize == -1) entrySize = 1024 * 1024; // Unknown size
+            // Read entry into its own buffer
+            byte[] content = zipStream.readAllBytes();
             
-            // Ensure buffer capacity
-            if (offset + entrySize > sharedBuffer.length) {
-                // Grow buffer
-                int newSize = Math.max(sharedBuffer.length * 2, offset + entrySize);
-                byte[] newBuffer = new byte[newSize];
-                System.arraycopy(sharedBuffer, 0, newBuffer, 0, offset);
-                // Note: In real implementation, we'd need to handle this differently
-                // since workers might be reading from old buffer
-            }
-            
-            int bytesRead = 0;
-            byte[] tempBuf = new byte[8192];
-            int read;
-            while ((read = zipStream.read(tempBuf)) != -1) {
-                System.arraycopy(tempBuf, 0, sharedBuffer, offset + bytesRead, read);
-                bytesRead += read;
-            }
-            
-            if (bytesRead > 0) {
-                int begin = offset;
-                int end = offset + bytesRead;
-                offset = end;
-                
-                dispatcher.pushWork(begin, end, entry.getName());
+            if (content.length > 0) {
+                dispatcher.pushWork(0, content.length, entry.getName());
                 totalFiles++;
-                totalBytes += bytesRead;
-                
-                // Small delay to prevent overwhelming queue
-                Thread.sleep(1);
+                totalBytes += content.length;
             }
             
             zipStream.closeEntry();
@@ -219,12 +186,10 @@ final class FileXmlProducer implements XmlProducer {
                 try (InputStream is = zf.getInputStream(entry)) {
                     byte[] content = is.readAllBytes();
                     if (content.length > 0) {
-                        // For file-based ZIP, we can use the file's bytes directly
-                        // In real implementation, we'd use memory-mapped file or shared buffer
+                        // Each file gets its own buffer region
                         dispatcher.pushWork(0, content.length, entry.getName());
                         totalFiles++;
                         totalBytes += content.length;
-                        Thread.sleep(1);
                     }
                 }
             }
@@ -296,7 +261,6 @@ final class FileZipProducer implements XmlProducer {
                         dispatcher.pushWork(0, content.length, entry.getName());
                         totalFiles++;
                         totalBytes += content.length;
-                        Thread.sleep(1);
                     }
                 }
             }

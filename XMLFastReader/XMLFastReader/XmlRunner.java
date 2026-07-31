@@ -55,6 +55,9 @@ public final class XmlRunner {
     /** Reusable XmlEvent instance (per runner) */
     XmlEvent event = new XmlEvent();
 
+    // Lock for queue synchronization (backpressure support)
+    private final Object queueLock = new Object();
+
     private static final int BIT_IN_TAG     = 1 << 0;  // 0b00001 อยู่ระหว่าง < … >
     private static final int BIT_IN_DQUOTE  = 1 << 1;  // 0b00010 อยู่ในค่า attr "..."
     private static final int BIT_IN_SQUOTE  = 1 << 2;  // 0b00100 อยู่ในค่า attr '...'
@@ -75,20 +78,40 @@ public final class XmlRunner {
 
     /** ใส่งานเข้าคิว; คืน false ถ้าเต็ม (เว้น 1 ช่องแยก เต็ม/ว่าง) */
     public boolean push(int b, int e, String fn) {
-        if (getRemain() == MASK) return false;
-        begin[wP] = b;
-        end[wP] = e;
-        fileName[wP] = fn;
-        wP = (wP + 1) & MASK;
-        return true;
+        synchronized (queueLock) {
+            while (getRemain() == MASK) {
+                try {
+                    queueLock.wait(); // Wait for space
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
+            }
+            begin[wP] = b;
+            end[wP] = e;
+            fileName[wP] = fn;
+            wP = (wP + 1) & MASK;
+            queueLock.notifyAll(); // Notify waiting consumer
+            return true;
+        }
     }
 
     /** ดึงงานถัดไป; คืน slot index หรือ -1 ถ้าว่าง (ข้อมูลใน array ยังไม่ถูกลบ) */
     public int pull() {
-        if (rP == wP) return -1;
-        int idx = rP;
-        rP = (rP + 1) & MASK;
-        return idx;
+        synchronized (queueLock) {
+            while (rP == wP) {
+                try {
+                    queueLock.wait(); // Wait for work
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    return -1;
+                }
+            }
+            int idx = rP;
+            rP = (rP + 1) & MASK;
+            queueLock.notifyAll(); // Notify waiting producer
+            return idx;
+        }
     }
 
     /** จำนวนงานค้างในคิว: (wP - rP) & MASK */
@@ -127,6 +150,7 @@ public final class XmlRunner {
 
     /** Current region begin offset (for linear buffer indexing) */
     int regionBegin;
+    int regionEnd;  // region end for bounds checking in callbacks
 
     /** Attribute parsing state */
     int attrNameStart = -1;   // offset in linear where attr name starts
@@ -141,6 +165,9 @@ public final class XmlRunner {
     int textStart = -1;       // offset in linear where text content starts
     int textLen = 0;          // length of accumulated text
 
+    /** Track if current PI is XML declaration (first PI only) */
+    private boolean firstPI = true;
+
     /** ผูกกราฟต้นเดียว (XmlPlanner — shared, read-only ตาม 11.6) */
     XmlPlanner planner;
     void setPlanner(XmlPlanner p) { this.planner = p; }
@@ -152,6 +179,7 @@ public final class XmlRunner {
         skipDepth = 0;
         currNode = (planner != null) ? planner.root : null;
         encoding = null;
+        firstPI = true; // Reset PI tracking for new file
         // Reset attribute state
         attrNameStart = -1;
         attrNameLen = 0;
@@ -186,6 +214,7 @@ public final class XmlRunner {
 
         // Set region begin for linear buffer indexing
         regionBegin = begin;
+        regionEnd = end;
 
         // FILE_BEGIN
         XmlCallback fbh = planner.getFileBeginHandler();
@@ -195,37 +224,34 @@ public final class XmlRunner {
             fbh.handle(event);
         }
 
-        // Parse loop
-        int p = begin;
-        while (p < end) {
-            byte b = src[p];
+        // Parse loop - use pointer as primary position tracker
+        pointer = begin;
+        while (pointer < end) {
+            byte b = src[pointer];
             int flags = xmlState & 0x7F; // 7 bits
             
             // Special handling for comment/CDATA/PI end sequences
             if ((xmlState & BIT_SPECIAL) != 0) {
                 if ((xmlState & BIT_SPECIAL_COMMENT) != 0) {
                     // Inside <!-- ... --> check for -->
-                    if (b == '-' && p + 2 < end && src[p + 1] == '-' && src[p + 2] == '>') {
+                    if (b == '-' && pointer + 2 < regionEnd && src[pointer + 1] == '-' && src[pointer + 2] == '>') {
                         // Found --> end of comment
-                        p += 3; // skip -->
-                        pointer = p;
+                        pointer += 3; // skip -->
                         setSpecial(false);
                         setSpecialComment(false);
                         setInTag(false);
                         continue;
                     }
-                } else if (p + 2 < end && src[p] == ']' && src[p + 1] == ']' && src[p + 2] == '>') {
+                } else if (pointer + 2 < regionEnd && src[pointer] == ']' && src[pointer + 1] == ']' && src[pointer + 2] == '>') {
                     // Inside <![CDATA[ ... ]]> check for ]]>
-                    p += 3; // skip ]]>
-                    pointer = p;
+                    pointer += 3; // skip ]]>
                     setSpecial(false);
                     setInTag(false);
                     continue;
-                } else if (b == '?' && p + 1 < end && src[p + 1] == '>') {
+                } else if (b == '?' && pointer + 1 < regionEnd && src[pointer + 1] == '>') {
                     // Inside <? ... ?> check for ?>
-                    onPiEnd(); // Parse encoding if XML declaration
-                    p += 2; // skip ?>
-                    pointer = p;
+                    // onPiEnd() is now called from onQuestion() when firstPI is true
+                    pointer += 2; // skip ?>
                     setSpecial(false);
                     setInTag(false);
                     continue;
@@ -233,8 +259,22 @@ public final class XmlRunner {
             }
             
             planner.TOC[flags][b & 0xFF].call(this);
-            p++;
-            pointer = p;
+            
+            // Check for comment/CDATA start after '<!' (handled in onBang via TOC)
+            if ((xmlState & BIT_SPECIAL) != 0 && (xmlState & BIT_IN_TAG) != 0 && 
+                pointer == regionBegin + 2) { // Right after '<!'
+                int remaining = regionEnd - pointer;
+                if (remaining >= 3 && src[pointer] == '-' && src[pointer + 1] == '-' && src[pointer + 2] == '-') {
+                    // "<!--" comment
+                    setSpecialComment(true);
+                } else if (remaining >= 7 && src[pointer] == '[' && src[pointer + 1] == 'C' && src[pointer + 2] == 'D' && 
+                           src[pointer + 3] == 'A' && src[pointer + 4] == 'T' && src[pointer + 5] == 'A' && src[pointer + 6] == '[') {
+                    // "<![CDATA[" - CDATA section
+                    // SPECIAL is set, SPECIAL_COMMENT is false
+                }
+            }
+            
+            pointer++;
         }
 
         // FILE_END
@@ -311,33 +351,34 @@ public final class XmlRunner {
 
     /** Handle '?' — PI start/end */
     void onQuestion() {
-        if ((xmlState & BIT_IN_TAG) != 0 && pointer == 1) {
-            // "<?" at start of tag
-            setSpecial(true);
+        byte[] src = planner.getSource();
+        if ((xmlState & BIT_IN_TAG) != 0 && pointer == regionBegin + 1) {
+            // "<?" at start of tag - check if it's "<?xml"
+            if (pointer + 3 < regionEnd && src[pointer] == 'x' && src[pointer + 1] == 'm' && src[pointer + 2] == 'l') {
+                setSpecial(true);
+                firstPI = true;  // This is XML declaration
+            } else {
+                setSpecial(true);
+                firstPI = false; // Other PI (xml-stylesheet, etc.)
+            }
         } else if ((xmlState & BIT_SPECIAL) != 0 && (xmlState & BIT_IN_TAG) != 0) {
             // "?>" end of PI
-            onPiEnd(); // Parse encoding if XML declaration
+            if (firstPI) {
+                onPiEnd(); // Parse encoding ONLY for first PI (XML declaration)
+            }
             setSpecial(false);
             setInTag(false);
+            firstPI = true; // Reset for next file
         }
     }
 
     /** Handle '!' — comment/CDATA/DOCTYPE */
     void onBang() {
-        if ((xmlState & BIT_IN_TAG) != 0 && pointer == 1) {
+        if ((xmlState & BIT_IN_TAG) != 0 && pointer == regionBegin + 1) {
             // "<!" at start of tag
             setSpecial(true);
             // Check for comment "<!--" or CDATA "<![CDATA["
             // Handled in parse loop by peeking ahead
-            byte[] src = planner.getSource();
-            if (pointer + 3 < src.length && src[pointer] == '-' && src[pointer + 1] == '-' && src[pointer + 2] == '-') {
-                // "<!--" comment
-                setSpecialComment(true);
-            } else if (pointer + 7 < src.length && src[pointer] == '[' && src[pointer + 1] == 'C' && src[pointer + 2] == 'D' && 
-                       src[pointer + 3] == 'A' && src[pointer + 4] == 'T' && src[pointer + 5] == 'A' && src[pointer + 6] == '[') {
-                // "<![CDATA[" - CDATA section
-                // SPECIAL is set, SPECIAL_COMMENT is false
-            }
         }
     }
 

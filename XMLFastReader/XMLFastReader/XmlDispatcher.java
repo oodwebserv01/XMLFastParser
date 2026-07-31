@@ -212,6 +212,7 @@ final class XmlDispatcher implements Runnable, ParseHandle {
         }
         
         if (bestWorker != null) {
+            // push() now blocks until space available (backpressure)
             return bestWorker.getRunner().push(begin, end, filename);
         }
         return false;
