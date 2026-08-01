@@ -46,8 +46,42 @@ public final class XmlRunner {
     private volatile int wP;
     private volatile int rP;
 
-    /** state machine bit flags (PLAN 6.2) — ต่อเทรด */
-    private byte xmlState;
+    /** State machine enum (PLAN 6.2) — 14 states replacing 7-bit flags */
+    private enum State {
+        // Outside of any tag
+        OUTSIDE_TAG_BEFORE_ROOT(0),      // 0: out side of tag & before root tag
+        OUTSIDE_TAG_INSIDE_ROOT(6),      // 6: out side of tag & inside root tag
+        
+        // Inside tag, outside root element
+        IN_TAG_FIRST_BYTE_OUTSIDE_ROOT(1),  // 1: intag but out side of root tag & first byte after <
+        IN_TAG_OUTSIDE_ROOT(2),             // 2: intag but out side of root tag
+        IN_TAG_HEADER_CHARSET(3),           // 3: intag & header for charset
+        IN_TAG_CDATA_OUTSIDE_ROOT(4),       // 4: intag CDATA & out side root tag, ignore this tag just looking for > (actually ]]>)
+        IN_TAG_HTML_COMMENT_OUTSIDE_ROOT(5), // 5: intag HTML_Comment & out side root tag, just looking for -->
+        IN_TAG_DOCTYPE_OUTSIDE_ROOT(13),    // 13: intag DOCTYPE & out side root tag, just looking for >
+        
+        // Inside tag, inside root element
+        IN_TAG_FIRST_BYTE_INSIDE_ROOT(7),   // 7: intag & inside root tag & first byte after <
+        IN_TAG_INSIDE_ROOT(8),              // 8: intag & inside root tag
+        IN_TAG_CDATA_INSIDE_ROOT(9),        // 9: intag CDATA inside root tag, ignore this tag just looking for > (actually ]]>)
+        IN_TAG_HTML_COMMENT_INSIDE_ROOT(10), // 10: intag HTML_Comment inside root tag, just looking for -->
+        IN_TAG_DOCTYPE_INSIDE_ROOT(14),     // 14: intag DOCTYPE inside root tag, just looking for >
+        
+        // Target tag states
+        IN_TARGET_TAG(11),                  // 11: in target tag
+        IN_TARGET_INNER(12);                // 12: inner side target tag (innerText & child tags)
+
+        final int id;
+        State(int id) { this.id = id; }
+        
+        static State fromId(int id) {
+            for (State s : values()) if (s.id == id) return s;
+            return OUTSIDE_TAG_BEFORE_ROOT;
+        }
+    }
+
+    /** Current parser state */
+    private State state = State.OUTSIDE_TAG_BEFORE_ROOT;
 
     /** ตำแหน่งอ่านบน buffer (linear/source) — ชี้ข้อมูลที่กำลังอ่าน (parse loop); package-private ให้ TOC cell เรียกได้ */
     int pointer;
@@ -58,23 +92,43 @@ public final class XmlRunner {
     // Lock for queue synchronization (backpressure support)
     private final Object queueLock = new Object();
 
-    private static final int BIT_IN_TAG     = 1 << 0;  // 0b00001 อยู่ระหว่าง < … >
-    private static final int BIT_IN_DQUOTE  = 1 << 1;  // 0b00010 อยู่ในค่า attr "..."
-    private static final int BIT_IN_SQUOTE  = 1 << 2;  // 0b00100 อยู่ในค่า attr '...'
-    private static final int BIT_CLOSE_TAG  = 1 << 3;  // 0b01000 tag ปัจจุบันเป็น </…
-    private static final int BIT_SPECIAL    = 1 << 4;  // 0b10000 comment/CDATA/PI <!… <?…
-    private static final int BIT_SPECIAL_COMMENT = 1 << 5; // 0b100000 SPECIAL ที่เป็น comment 
-    private static final int BIT_TARGET = 1 << 6; // 0b1000000 tag ปัจจุบันเป็นแท็กที่ user ลงทะเบียนไว้  
-    // `<!--` (skip ถึง `-->` ไม่ใช่ `>`)
-    // bit 7 ว่าง (สงวน)
-
-    void setInTag(boolean v)    { if (v) xmlState |= BIT_IN_TAG;    else xmlState &= ~BIT_IN_TAG; }
-    void setInDQuote(boolean v)  { if (v) xmlState |= BIT_IN_DQUOTE;  else xmlState &= ~BIT_IN_DQUOTE; }
-    void setInSQuote(boolean v)  { if (v) xmlState |= BIT_IN_SQUOTE;  else xmlState &= ~BIT_IN_SQUOTE; }
-    void setCloseTag(boolean v)  { if (v) xmlState |= BIT_CLOSE_TAG;  else xmlState &= ~BIT_CLOSE_TAG; }
-    void setSpecial(boolean v)   { if (v) xmlState |= BIT_SPECIAL;   else xmlState &= ~BIT_SPECIAL; }
-    void setSpecialComment(boolean v) { if (v) xmlState |= BIT_SPECIAL_COMMENT; else xmlState &= ~BIT_SPECIAL_COMMENT; }
-    void setTarget(boolean v)      { if (v) xmlState |= BIT_TARGET;      else xmlState &= ~BIT_TARGET; }
+    // State transition helpers
+    void setState(State s) { this.state = s; }
+    State getState() { return state; }
+    
+    boolean isInTag() {
+        return state.ordinal() >= State.IN_TAG_FIRST_BYTE_OUTSIDE_ROOT.ordinal() 
+            && state.ordinal() <= State.IN_TAG_DOCTYPE_INSIDE_ROOT.ordinal();
+    }
+    
+    boolean isInsideRoot() {
+        return state == State.OUTSIDE_TAG_INSIDE_ROOT 
+            || state.ordinal() >= State.IN_TAG_FIRST_BYTE_INSIDE_ROOT.ordinal();
+    }
+    
+    boolean isInTargetTag() {
+        return state == State.IN_TARGET_TAG || state == State.IN_TARGET_INNER;
+    }
+    
+    boolean isInCData() {
+        return state == State.IN_TAG_CDATA_OUTSIDE_ROOT || state == State.IN_TAG_CDATA_INSIDE_ROOT;
+    }
+    
+    boolean isInHtmlComment() {
+        return state == State.IN_TAG_HTML_COMMENT_OUTSIDE_ROOT || state == State.IN_TAG_HTML_COMMENT_INSIDE_ROOT;
+    }
+    
+    boolean isInDoctype() {
+        return state == State.IN_TAG_DOCTYPE_OUTSIDE_ROOT || state == State.IN_TAG_DOCTYPE_INSIDE_ROOT;
+    }
+    
+    boolean isInHeader() {
+        return state == State.IN_TAG_HEADER_CHARSET;
+    }
+    
+    boolean isFirstByteAfterLt() {
+        return state == State.IN_TAG_FIRST_BYTE_OUTSIDE_ROOT || state == State.IN_TAG_FIRST_BYTE_INSIDE_ROOT;
+    }
 
     /** ใส่งานเข้าคิว; คืน false ถ้าเต็ม (เว้น 1 ช่องแยก เต็ม/ว่าง) */
     public boolean push(int b, int e, String fn) {
@@ -174,7 +228,7 @@ public final class XmlRunner {
 
     /** รีเซ็ต state ต่อไฟล์ (PLAN 8.5.3): flags/skip/currNode/encoding ล้าง; linear เก็บ reuse */
     void resetState() {
-        xmlState = 0;
+        state = State.OUTSIDE_TAG_BEFORE_ROOT;
         skipNameLen = 0;
         skipDepth = 0;
         currNode = (planner != null) ? planner.root : null;
@@ -228,49 +282,93 @@ public final class XmlRunner {
         pointer = begin;
         while (pointer < end) {
             byte b = src[pointer];
-            int flags = xmlState & 0x7F; // 7 bits
             
             // Special handling for comment/CDATA/PI end sequences
-            if ((xmlState & BIT_SPECIAL) != 0) {
-                if ((xmlState & BIT_SPECIAL_COMMENT) != 0) {
-                    // Inside <!-- ... --> check for -->
-                    if (b == '-' && pointer + 2 < regionEnd && src[pointer + 1] == '-' && src[pointer + 2] == '>') {
-                        // Found --> end of comment
-                        pointer += 3; // skip -->
-                        setSpecial(false);
-                        setSpecialComment(false);
-                        setInTag(false);
-                        continue;
-                    }
-                } else if (pointer + 2 < regionEnd && src[pointer] == ']' && src[pointer + 1] == ']' && src[pointer + 2] == '>') {
-                    // Inside <![CDATA[ ... ]]> check for ]]>
+            if (isInCData()) {
+                // Inside <![CDATA[ ... ]]> check for ]]>
+                if (b == ']' && pointer + 2 < regionEnd && src[pointer + 1] == ']' && src[pointer + 2] == '>') {
+                    // Found ]]> end of CDATA
                     pointer += 3; // skip ]]>
-                    setSpecial(false);
-                    setInTag(false);
+                    // Exit CDATA state - go back to appropriate state
+                    if (isInsideRoot()) {
+                        setState(State.OUTSIDE_TAG_INSIDE_ROOT);
+                    } else {
+                        setState(State.OUTSIDE_TAG_BEFORE_ROOT);
+                    }
                     continue;
-                } else if (b == '?' && pointer + 1 < regionEnd && src[pointer + 1] == '>') {
-                    // Inside <? ... ?> check for ?>
-                    // onPiEnd() is now called from onQuestion() when firstPI is true
+                }
+            } else if (isInHtmlComment()) {
+                // Inside <!-- ... --> check for -->
+                if (b == '-' && pointer + 2 < regionEnd && src[pointer + 1] == '-' && src[pointer + 2] == '>') {
+                    // Found --> end of comment
+                    pointer += 3; // skip -->
+                    // Exit comment state - go back to appropriate state
+                    if (isInsideRoot()) {
+                        setState(State.OUTSIDE_TAG_INSIDE_ROOT);
+                    } else {
+                        setState(State.OUTSIDE_TAG_BEFORE_ROOT);
+                    }
+                    continue;
+                }
+            } else if (isInDoctype()) {
+                // Inside <!DOCTYPE ... > check for >
+                if (b == '>') {
+                    // Found > end of DOCTYPE
+                    pointer++; // skip >
+                    // Exit DOCTYPE state - go back to appropriate state
+                    if (isInsideRoot()) {
+                        setState(State.OUTSIDE_TAG_INSIDE_ROOT);
+                    } else {
+                        setState(State.OUTSIDE_TAG_BEFORE_ROOT);
+                    }
+                    continue;
+                }
+            } else if (isInHeader()) {
+                // Inside <? ... ?> check for ?>
+                if (b == '?' && pointer + 1 < regionEnd && src[pointer + 1] == '>') {
+                    // Found ?> end of PI
+                    onPiEnd(); // Parse encoding if XML declaration
                     pointer += 2; // skip ?>
-                    setSpecial(false);
-                    setInTag(false);
+                    // Exit header state - go back to appropriate state
+                    if (isInsideRoot()) {
+                        setState(State.OUTSIDE_TAG_INSIDE_ROOT);
+                    } else {
+                        setState(State.OUTSIDE_TAG_BEFORE_ROOT);
+                    }
                     continue;
                 }
             }
             
-            planner.TOC[flags][b & 0xFF].call(this);
+            // Call TOC callback for current state and byte
+            planner.TOC[state.id][b & 0xFF].call(this);
             
-            // Check for comment/CDATA start after '<!' (handled in onBang via TOC)
-            if ((xmlState & BIT_SPECIAL) != 0 && (xmlState & BIT_IN_TAG) != 0 && 
-                pointer == regionBegin + 2) { // Right after '<!'
-                int remaining = regionEnd - pointer;
-                if (remaining >= 3 && src[pointer] == '-' && src[pointer + 1] == '-' && src[pointer + 2] == '-') {
-                    // "<!--" comment
-                    setSpecialComment(true);
-                } else if (remaining >= 7 && src[pointer] == '[' && src[pointer + 1] == 'C' && src[pointer + 2] == 'D' && 
-                           src[pointer + 3] == 'A' && src[pointer + 4] == 'T' && src[pointer + 5] == 'A' && src[pointer + 6] == '[') {
+            // Check for comment/CDATA/DOCTYPE start after '<!' (handled in onBang via TOC)
+            if (isFirstByteAfterLt() && b == '!') {
+                // We're at the '!' after '<', check what follows
+                int remaining = regionEnd - pointer - 1; // -1 because we're at '!'
+                if (remaining >= 2 && src[pointer + 1] == '-' && src[pointer + 2] == '-') {
+                    // "<!--" comment (2 dashes after !)
+                    if (isInsideRoot()) {
+                        setState(State.IN_TAG_HTML_COMMENT_INSIDE_ROOT);
+                    } else {
+                        setState(State.IN_TAG_HTML_COMMENT_OUTSIDE_ROOT);
+                    }
+                } else if (remaining >= 7 && src[pointer + 1] == '[' && src[pointer + 2] == 'C' && src[pointer + 3] == 'D' && 
+                           src[pointer + 4] == 'A' && src[pointer + 5] == 'T' && src[pointer + 6] == 'A' && src[pointer + 7] == '[') {
                     // "<![CDATA[" - CDATA section
-                    // SPECIAL is set, SPECIAL_COMMENT is false
+                    if (isInsideRoot()) {
+                        setState(State.IN_TAG_CDATA_INSIDE_ROOT);
+                    } else {
+                        setState(State.IN_TAG_CDATA_OUTSIDE_ROOT);
+                    }
+                } else if (remaining >= 7 && src[pointer + 1] == 'D' && src[pointer + 2] == 'O' && src[pointer + 3] == 'C' && 
+                           src[pointer + 4] == 'T' && src[pointer + 5] == 'Y' && src[pointer + 6] == 'P' && src[pointer + 7] == 'E') {
+                    // "<!DOCTYPE" - DOCTYPE declaration, skip until '>'
+                    if (isInsideRoot()) {
+                        setState(State.IN_TAG_DOCTYPE_INSIDE_ROOT);
+                    } else {
+                        setState(State.IN_TAG_DOCTYPE_OUTSIDE_ROOT);
+                    }
                 }
             }
             
@@ -285,45 +383,51 @@ public final class XmlRunner {
         }
     }
 
-    // ===== TOC Callback Helpers (called from planner.TOC[flags][byte].call()) =====
+    // ===== TOC Callback Helpers (called from planner.TOC[state][byte].call()) =====
 
     /** Handle '<' — enter tag */
     void onLt() {
-        if ((xmlState & BIT_SPECIAL) != 0) return; // inside comment/CDATA/PI, ignore
+        if (isInCData() || isInHtmlComment() || isInDoctype() || isInHeader()) return; // inside comment/CDATA/DOCTYPE/PI, ignore
         // End any pending inner text
         endInnerText();
-        setInTag(true);
-        setCloseTag(false);
-        setSpecial(false);
-        setSpecialComment(false);
-        setTarget(false);
+        
+        // Transition to first byte after '<' state
+        if (isInsideRoot()) {
+            setState(State.IN_TAG_FIRST_BYTE_INSIDE_ROOT);
+        } else {
+            setState(State.IN_TAG_FIRST_BYTE_OUTSIDE_ROOT);
+        }
+        // Reset tag-specific flags
+        inAttrName = false;
+        inAttrValue = false;
+        attrValueQuoted = false;
     }
 
     /** Handle '/' — could be close tag or self-close */
     void onSlash() {
-        if ((xmlState & BIT_IN_TAG) != 0) {
-            if ((xmlState & BIT_CLOSE_TAG) == 0 && pointer > 0 && planner.getSource()[pointer - 1] == '<') {
-                // "</" — close tag
-                setCloseTag(true);
-            } else if ((xmlState & BIT_IN_DQUOTE) == 0 && (xmlState & BIT_IN_SQUOTE) == 0) {
-                // "/" inside tag — potential self-close, check next char in onGt()
+        if (isFirstByteAfterLt()) {
+            // "</" — close tag
+            if (isInsideRoot()) {
+                setState(State.IN_TAG_INSIDE_ROOT);
+            } else {
+                setState(State.IN_TAG_OUTSIDE_ROOT);
             }
+            // Mark as close tag - we'll handle this in onGt
+            // We need a way to track this - let's use a field
+            // For now, we'll check in onGt if the previous char was '/'
+        } else if (!inAttrName && !inAttrValue) {
+            // "/" inside tag — potential self-close, check next char in onGt()
         }
     }
 
     /** Handle '>' — exit tag */
     void onGt() {
-        if ((xmlState & BIT_SPECIAL) != 0) {
-            // End of PI or DOCTYPE
-            if ((xmlState & BIT_SPECIAL_COMMENT) != 0) {
-                // Comment ends with "-->", handled separately
-            } else {
-                setSpecial(false);
-            }
+        if (isInCData() || isInHtmlComment() || isInHeader()) {
+            // These are handled in parse loop directly
             return;
         }
 
-        if ((xmlState & BIT_IN_TAG) != 0) {
+        if (isInTag()) {
             // Check self-closing "/>"
             boolean selfClose = false;
             byte[] src = planner.getSource();
@@ -331,54 +435,64 @@ public final class XmlRunner {
                 selfClose = true;
             }
 
-            if ((xmlState & BIT_CLOSE_TAG) != 0) {
+            // Check if we're in a close tag (previous char was '/' right after '<')
+            boolean isCloseTag = false;
+            if (pointer >= 2 && src[pointer - 2] == '/' && src[pointer - 1] != '"' && src[pointer - 1] != '\'') {
+                // Check if the '/' was right after '<'
+                if (pointer >= 3 && src[pointer - 3] == '<') {
+                    isCloseTag = true;
+                }
+            }
+
+            if (isCloseTag) {
                 // End tag: </name>
                 handleEndTag();
             } else {
                 // Start tag: <name ...>
                 handleStartTag(selfClose);
             }
-            setInTag(false);
-            setInDQuote(false);
-            setInSQuote(false);
-            setCloseTag(false);
-            // Start inner text after start tag (unless self-closing)
-            if (!selfClose && (xmlState & BIT_TARGET) != 0) {
-                startInnerText();
+            
+            // Exit tag state
+            if (isInsideRoot()) {
+                if (!selfClose && isInTargetTag()) {
+                    setState(State.IN_TARGET_INNER);
+                    startInnerText();
+                } else {
+                    setState(State.OUTSIDE_TAG_INSIDE_ROOT);
+                }
+            } else {
+                setState(State.OUTSIDE_TAG_BEFORE_ROOT);
             }
+            
+            // Reset attribute state
+            inAttrName = false;
+            inAttrValue = false;
+            attrValueQuoted = false;
         }
     }
 
     /** Handle '?' — PI start/end */
     void onQuestion() {
         byte[] src = planner.getSource();
-        if ((xmlState & BIT_IN_TAG) != 0 && pointer == regionBegin + 1) {
+        if (isFirstByteAfterLt()) {
             // "<?" at start of tag - check if it's "<?xml"
             if (pointer + 3 < regionEnd && src[pointer] == 'x' && src[pointer + 1] == 'm' && src[pointer + 2] == 'l') {
-                setSpecial(true);
+                setState(State.IN_TAG_HEADER_CHARSET);
                 firstPI = true;  // This is XML declaration
             } else {
-                setSpecial(true);
+                setState(State.IN_TAG_HEADER_CHARSET);
                 firstPI = false; // Other PI (xml-stylesheet, etc.)
             }
-        } else if ((xmlState & BIT_SPECIAL) != 0 && (xmlState & BIT_IN_TAG) != 0) {
-            // "?>" end of PI
-            if (firstPI) {
-                onPiEnd(); // Parse encoding ONLY for first PI (XML declaration)
-            }
-            setSpecial(false);
-            setInTag(false);
-            firstPI = true; // Reset for next file
+        } else if (isInHeader()) {
+            // "?>" end of PI - handled in parse loop
         }
     }
 
     /** Handle '!' — comment/CDATA/DOCTYPE */
     void onBang() {
-        if ((xmlState & BIT_IN_TAG) != 0 && pointer == regionBegin + 1) {
+        if (isFirstByteAfterLt()) {
             // "<!" at start of tag
-            setSpecial(true);
-            // Check for comment "<!--" or CDATA "<![CDATA["
-            // Handled in parse loop by peeking ahead
+            // Check for comment "<!--" or CDATA "<![CDATA[" in parse loop
         }
     }
 
@@ -432,12 +546,16 @@ public final class XmlRunner {
 
     /** Handle '"' — double quote */
     void onDQuote() {
-        if ((xmlState & BIT_IN_TAG) != 0) {
-            if ((xmlState & BIT_IN_DQUOTE) != 0) {
-                setInDQuote(false); // end attribute value
+        if (isInTag() && !isInCData() && !isInHtmlComment() && !isInHeader()) {
+            if (inAttrValue && attrValueQuoted) {
+                // End attribute value
+                inAttrValue = false;
+                attrValueQuoted = false;
                 endAttrValue();
-            } else if ((xmlState & BIT_IN_SQUOTE) == 0) {
-                setInDQuote(true); // start attribute value
+            } else if (!inAttrName && !inAttrValue) {
+                // Start attribute value
+                inAttrValue = true;
+                attrValueQuoted = true;
                 startAttrValue();
             }
         }
@@ -445,12 +563,14 @@ public final class XmlRunner {
 
     /** Handle ''' — single quote */
     void onSQuote() {
-        if ((xmlState & BIT_IN_TAG) != 0) {
-            if ((xmlState & BIT_IN_SQUOTE) != 0) {
-                setInSQuote(false);
+        if (isInTag() && !isInCData() && !isInHtmlComment() && !isInHeader()) {
+            if (inAttrValue && attrValueQuoted) {
+                inAttrValue = false;
+                attrValueQuoted = false;
                 endAttrValue();
-            } else if ((xmlState & BIT_IN_DQUOTE) == 0) {
-                setInSQuote(true);
+            } else if (!inAttrName && !inAttrValue) {
+                inAttrValue = true;
+                attrValueQuoted = true;
                 startAttrValue();
             }
         }
@@ -458,14 +578,14 @@ public final class XmlRunner {
 
     /** Handle '=' — attribute name/value separator */
     void onEquals() {
-        if ((xmlState & BIT_IN_TAG) != 0 && inAttrName) {
+        if (isInTag() && !isInCData() && !isInHtmlComment() && !isInHeader() && inAttrName) {
             endAttrName();
         }
     }
 
     /** Handle whitespace in tag */
     void onSpace() {
-        if ((xmlState & BIT_IN_TAG) != 0) {
+        if (isInTag() && !isInCData() && !isInHtmlComment() && !isInHeader()) {
             if (inAttrName) {
                 endAttrName();
             }
@@ -479,19 +599,20 @@ public final class XmlRunner {
         ensureLinear(linearPos + 2);
         linear[linearPos] = b;
 
-        if ((xmlState & BIT_IN_TAG) != 0) {
-            if ((xmlState & BIT_CLOSE_TAG) != 0) {
-                // In close tag name — accumulate
-            } else if (inAttrName) {
+        if (isInTag() && !isInCData() && !isInHtmlComment() && !isInHeader()) {
+            if (inAttrName) {
                 accumulateAttrName(b);
             } else if (inAttrValue) {
                 accumulateAttrValue(b);
-            } else if ((xmlState & BIT_IN_DQUOTE) == 0 && (xmlState & BIT_IN_SQUOTE) == 0) {
-                // In tag name or attribute name (before '=')
-                // Tag name handled by findTagNameEnd()
             }
-        } else {
-            // Outside tag — inner text content
+            // Tag name handled by findTagNameEnd() in handleStartTag/handleEndTag
+        } else if (state == State.IN_TARGET_INNER) {
+            // Inside target tag - accumulate inner text
+            if (textStart >= 0) {
+                accumulateInnerText(b);
+            }
+        } else if (state == State.OUTSIDE_TAG_INSIDE_ROOT) {
+            // Outside tag but inside root - could be text between tags
             if (textStart >= 0) {
                 accumulateInnerText(b);
             }
@@ -511,18 +632,19 @@ public final class XmlRunner {
         if (child != null) {
             currNode = child;
             if (child.handler != null) {
-                setTarget(true);
+                // Enter target tag state
+                setState(State.IN_TARGET_TAG);
                 fireTagEvent(child);
             }
         } else {
             // Not registered — enter skip mode
             enterSkip(linear, 0, tagNameLen);
-            setTarget(false);
+            // Stay in appropriate tag state
         }
 
         if (selfClose) {
             // Self-closing: fire END immediately
-            if ((xmlState & BIT_TARGET) != 0 && currNode.handler != null) {
+            if (isInTargetTag() && currNode.handler != null) {
                 fireEndEvent(currNode);
             }
             currNode = currNode.parent != null ? currNode.parent : currNode; // go back up
@@ -546,7 +668,7 @@ public final class XmlRunner {
         }
 
         // Normal registered tag
-        if ((xmlState & BIT_TARGET) != 0 && currNode.handler != null) {
+        if (isInTargetTag() && currNode.handler != null) {
             fireEndEvent(currNode);
         }
         // Move back up
@@ -624,7 +746,7 @@ public final class XmlRunner {
 
     /** End attribute value (hit closing quote) */
     void endAttrValue() {
-        if (inAttrValue && (xmlState & BIT_TARGET) != 0 && currNode.handler != null) {
+        if (inAttrValue && isInTargetTag() && currNode.handler != null) {
             fireAttrEvent();
         }
         inAttrValue = false;
@@ -662,7 +784,7 @@ public final class XmlRunner {
 
     /** End inner text (hit '<' of next tag) */
     void endInnerText() {
-        if (textStart >= 0 && textLen > 0 && (xmlState & BIT_TARGET) != 0 && currNode.handler != null) {
+        if (textStart >= 0 && textLen > 0 && isInTargetTag() && currNode.handler != null) {
             fireInnerEvent();
         }
         textStart = -1;

@@ -39,11 +39,13 @@
 ### 2.1 Critical — Parser Core (XmlRunner.java)
 | # | งาน | สถานะ | รายละเอียด |
 |---|-----|-------|-----------|
-| 1 | **CDATA handling** | ❌ ยังไม่ทำ | TOC มี state SPECIAL แต่ parse loop ยังไม่ handle `<![CDATA[...]]>` |
+| 1 | **CDATA handling** | ✅ Done | `<![CDATA[...]]>` detection + skip implemented in parseRegion() |
 | 2 | **Entity references** | ❌ ยังไม่ทำ | `<`, `>`, `&`, `"`, `&apos;`, numeric `&#...;` — ตัดสินใจ PLAN 11.3: ส่ง raw ไม่ decode |
 | 3 | **Skip unregistered branches** | ⚠️ บางส่วน | มี `skipName/skipDepth` logic แต่ inner text collection ยังไม่ครบ (PLAN 11.5) |
 | 4 | **EOF handling / root close** | ❌ ยังไม่ทำ | PLAN 11.8: ปิดท้ายไฟล์, synthetic END events |
 | 5 | **XML Declaration parsing** | ⚠️ บางส่วน | TOC มี `onPiEnd()` แต่ encoding detection ยังไม่เชื่อมกับ charset ใน XmlEvent |
+| 6 | **HTML Comment handling** | ✅ Done | `<!-- ... -->` detection + skip implemented |
+| 7 | **DOCTYPE handling** | ✅ Done | `<!DOCTYPE ... >` detection + skip implemented |
 
 ### 2.2 Important — API & Usability
 | # | งาน | สถานะ | รายละเอียด |
@@ -68,11 +70,13 @@
 ## 3. ลำดับความสำคัญแนะนำ (Next Steps)
 
 ### Phase 1: Parser Completeness (Critical)
-1. **CDATA handling** ใน `XmlRunner.parseLoop()`
+1. ~~**CDATA handling** ใน `XmlRunner.parseLoop()`~~ ✅ **Done**
 2. **Entity reference policy** — ตัดสินใจ: pass-through raw (ตาม PLAN 11.3) → document ไว้
 3. **Skip unregistered branches** — ให้ inner text ของ branch ที่ skip ไม่ leak มา
 4. **EOF / synthetic END** — flush stack, fire `FILE_END`
 5. **XML Declaration → charset** — เชื่อม `onPiEnd()` กับ `XmlEvent.charset`
+6. ~~**HTML Comment handling**~~ ✅ **Done**
+7. ~~**DOCTYPE handling**~~ ✅ **Done**
 
 ### Phase 2: API Hardening
 6. **Registry freeze** — `planner.freeze()` / builder pattern

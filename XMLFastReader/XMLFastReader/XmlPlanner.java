@@ -54,10 +54,10 @@ public final class XmlPlanner {
         boolean call(XmlRunner r) throws Exception;
     }
 
-    /** TOC[flags][byte] — decision table 2 มิติ (PLAN 6.1 / 6.6)
-     *  แถว = 6 flag bit (xmlState & 0x3F → 64), คอลัมน์ = raw byte 8-bit (256)
+    /** TOC[state][byte] — decision table 2 มิติ (PLAN 6.1 / 6.6)
+     *  แถว = 15 states (XmlRunner.State enum), คอลัมน์ = raw byte 8-bit (256)
      *  cell ยังว่าง (null) รอเติมทีละ cell ตาม state machine */
-    final callback[][] TOC = new callback[128][256];
+    final callback[][] TOC = new callback[15][256];
 
     /** default cell — ข้าม byte นี้ (ignore/skip) แล้วต่าไป; call() คืนทันที */
     static final callback IGNORE = new callback() {
@@ -66,9 +66,9 @@ public final class XmlPlanner {
 
     /** สร้าง TOC — ตั้งทุกช่องชี้มาที่ IGNORE (default = ข้าม) แล้วค่อยเติม cell เฉพาะทีหลัง */
     public XmlPlanner() {
-        for (int f = 0; f < TOC.length; f++)
+        for (int s = 0; s < TOC.length; s++)
             for (int b = 0; b < TOC[0].length; b++)
-                TOC[f][b] = IGNORE;
+                TOC[s][b] = IGNORE;
         populateTOC(); // เติม state machine handlers
     }
 
@@ -76,24 +76,30 @@ public final class XmlPlanner {
 
     /** เติม TOC cells สำหรับ XML parsing state machine */
     private void populateTOC() {
-        // ===== FLAG BIT DEFINITIONS (must match XmlRunner) =====
-        final int IN_TAG           = 1 << 0; // 0x01
-        final int IN_DQUOTE        = 1 << 1; // 0x02
-        final int IN_SQUOTE        = 1 << 2; // 0x04
-        final int CLOSE_TAG        = 1 << 3; // 0x08
-        final int SPECIAL          = 1 << 4; // 0x10
-        final int SPECIAL_COMMENT  = 1 << 5; // 0x20
-        final int TARGET           = 1 << 6; // 0x40
+        // State IDs from XmlRunner.State enum:
+        // 0: OUTSIDE_TAG_BEFORE_ROOT
+        // 1: IN_TAG_FIRST_BYTE_OUTSIDE_ROOT
+        // 2: IN_TAG_OUTSIDE_ROOT
+        // 3: IN_TAG_HEADER_CHARSET
+        // 4: IN_TAG_CDATA_OUTSIDE_ROOT
+        // 5: IN_TAG_HTML_COMMENT_OUTSIDE_ROOT
+        // 6: OUTSIDE_TAG_INSIDE_ROOT
+        // 7: IN_TAG_FIRST_BYTE_INSIDE_ROOT
+        // 8: IN_TAG_INSIDE_ROOT
+        // 9: IN_TAG_CDATA_INSIDE_ROOT
+        // 10: IN_TAG_HTML_COMMENT_INSIDE_ROOT
+        // 11: IN_TARGET_TAG
+        // 12: IN_TARGET_INNER
+        // 13: IN_TAG_DOCTYPE_OUTSIDE_ROOT
+        // 14: IN_TAG_DOCTYPE_INSIDE_ROOT
 
-        // Helper: set cell for a given flag combination
-        java.util.function.BiConsumer<Integer, callback> set = (flags, cb) -> {
-            for (int b = 0; b < 256; b++) TOC[flags][b] = cb;
+        // Helper: set cell for a given state
+        java.util.function.BiConsumer<Integer, callback> set = (state, cb) -> {
+            for (int b = 0; b < 256; b++) TOC[state][b] = cb;
         };
 
-        // ===== 1. OUTSIDE TAG (flags=0): Looking for '<' =====
-        // Default: consume as text content (INNER)
-        // Actually, outside tag we just advance pointer. Text handling is done in parse loop.
-        // For TOC, we only care about '<' transition.
+        // ===== State 0: OUTSIDE_TAG_BEFORE_ROOT - Looking for '<' =====
+        // Default: consume as text content (INNER) - but we're before root so just skip
         for (int b = 0; b < 256; b++) TOC[0][b] = IGNORE;
         TOC[0]['<'] = new callback() {
             public boolean call(XmlRunner r) {
@@ -102,42 +108,40 @@ public final class XmlPlanner {
             }
         };
 
-        // ===== 2. IN_TAG (flags=IN_TAG): Parsing tag name =====
-        int inTag = IN_TAG;
-        // Default: accumulate tag name
-        callback tagNameAccum = new callback() {
+        // ===== State 1: IN_TAG_FIRST_BYTE_OUTSIDE_ROOT - First byte after '<' outside root =====
+        // This is where we see '/', '?', '!', or tag name start
+        callback firstByteOutside = new callback() {
             public boolean call(XmlRunner r) {
+                // Accumulate tag name character
                 byte[] src = r.planner.getSource();
                 r.linear[r.pointer - r.regionBegin] = src[r.pointer++];
                 return true;
             }
         };
-        for (int b = 0; b < 256; b++) TOC[inTag][b] = tagNameAccum;
-
-        // Transitions from IN_TAG:
-        TOC[inTag]['/'] = new callback() { // </ → close tag
+        for (int b = 0; b < 256; b++) TOC[1][b] = firstByteOutside;
+        
+        // Transitions from first byte:
+        TOC[1]['/'] = new callback() { // </ → close tag
             public boolean call(XmlRunner r) {
-                r.setCloseTag(true);
+                // This is a close tag, but we're outside root - just skip
                 return true;
             }
         };
-        TOC[inTag]['?'] = new callback() { // <? → PI
+        TOC[1]['?'] = new callback() { // <? → PI
             public boolean call(XmlRunner r) {
-                r.setSpecial(true);
+                r.onQuestion();
                 return true;
             }
         };
-        TOC[inTag]['!'] = new callback() { // <! → comment/CDATA/DOCTYPE
+        TOC[1]['!'] = new callback() { // <! → comment/CDATA/DOCTYPE
             public boolean call(XmlRunner r) {
-                r.setSpecial(true);
+                r.onBang();
                 return true;
             }
         };
-        TOC[inTag]['>'] = new callback() { // <tag> → end of start tag
+        TOC[1]['>'] = new callback() { // <> → empty tag (invalid but handle)
             public boolean call(XmlRunner r) {
-                r.setInTag(false);
-                // Check if tag name matches registered path
-                // This will be handled by parse loop after TOC returns
+                r.onGt();
                 return true;
             }
         };
@@ -148,144 +152,238 @@ public final class XmlPlanner {
                 return true;
             }
         };
-        TOC[inTag][' '] = attrNameStart;
-        TOC[inTag]['\t'] = attrNameStart;
-        TOC[inTag]['\n'] = attrNameStart;
-        TOC[inTag]['\r'] = attrNameStart;
+        TOC[1][' '] = attrNameStart;
+        TOC[1]['\t'] = attrNameStart;
+        TOC[1]['\n'] = attrNameStart;
+        TOC[1]['\r'] = attrNameStart;
 
         // '=' ends attribute name
-        TOC[inTag]['='] = new callback() {
+        TOC[1]['='] = new callback() {
             public boolean call(XmlRunner r) {
                 r.onEquals();
                 return true;
             }
         };
 
-        // ===== 3. IN_TAG + CLOSE_TAG (flags=IN_TAG|CLOSE_TAG): Parsing close tag name =====
-        int inCloseTag = IN_TAG | CLOSE_TAG;
-        for (int b = 0; b < 256; b++) TOC[inCloseTag][b] = tagNameAccum;
-        TOC[inCloseTag]['>'] = new callback() { // </tag> → end of close tag
+        // ===== State 2: IN_TAG_OUTSIDE_ROOT - Parsing tag name/attributes outside root =====
+        callback inTagOutside = new callback() {
             public boolean call(XmlRunner r) {
-                r.setInTag(false);
-                r.setCloseTag(false);
+                byte[] src = r.planner.getSource();
+                r.linear[r.pointer - r.regionBegin] = src[r.pointer++];
                 return true;
             }
         };
-        TOC[inCloseTag][' '] = attrNameStart;
-        TOC[inCloseTag]['\t'] = attrNameStart;
-        TOC[inCloseTag]['\n'] = attrNameStart;
-        TOC[inCloseTag]['\r'] = attrNameStart;
-
-        // ===== 4. IN_TAG + SPECIAL (flags=IN_TAG|SPECIAL): After <! or <? =====
-        int inSpecial = IN_TAG | SPECIAL;
-        // Default: skip until '>' or '?>'
-        for (int b = 0; b < 256; b++) TOC[inSpecial][b] = IGNORE;
-        TOC[inSpecial]['-'] = new callback() { // <!-- → comment
+        for (int b = 0; b < 256; b++) TOC[2][b] = inTagOutside;
+        
+        TOC[2]['>'] = new callback() { // End of tag
             public boolean call(XmlRunner r) {
-                // Check next char for second '-'
-                r.setSpecialComment(true);
+                r.onGt();
                 return true;
             }
         };
-        TOC[inSpecial]['['] = new callback() { // <![CDATA[ or <![DOCTYPE
+        TOC[2][' '] = attrNameStart;
+        TOC[2]['\t'] = attrNameStart;
+        TOC[2]['\n'] = attrNameStart;
+        TOC[2]['\r'] = attrNameStart;
+        TOC[2]['='] = new callback() {
             public boolean call(XmlRunner r) {
-                // Will check for "CDATA[" in parse loop
+                r.onEquals();
                 return true;
             }
         };
-        TOC[inSpecial]['>'] = new callback() { // <?...> or <!> → end of PI/special
+        TOC[2]['"'] = new callback() {
             public boolean call(XmlRunner r) {
-                r.onPiEnd(); // Parse encoding if XML declaration
-                r.setInTag(false);
-                r.setSpecial(false);
+                r.onDQuote();
                 return true;
             }
         };
-        TOC[inSpecial]['?'] = new callback() { // <?...?> → end of PI
+        TOC[2]['\''] = new callback() {
             public boolean call(XmlRunner r) {
-                // Check next char for '>'
+                r.onSQuote();
                 return true;
             }
         };
 
-        // ===== 5. IN_TAG + SPECIAL + SPECIAL_COMMENT (flags=IN_TAG|SPECIAL|SPECIAL_COMMENT): Inside <!-- ... --> =====
-        int inComment = IN_TAG | SPECIAL | SPECIAL_COMMENT;
-        for (int b = 0; b < 256; b++) TOC[inComment][b] = IGNORE;
-        TOC[inComment]['-'] = new callback() { // -- → potential end
+        // ===== State 3: IN_TAG_HEADER_CHARSET - Inside <?xml ... ?> =====
+        for (int b = 0; b < 256; b++) TOC[3][b] = IGNORE; // Just skip until ?>
+        TOC[3]['?'] = new callback() { // Potential end of PI
             public boolean call(XmlRunner r) {
                 // Check next char for '>' in parse loop
                 return true;
             }
         };
 
-        // ===== 5b. CDATA section: <![CDATA[ ... ]]> =====
-        // We'll handle CDATA end in parse loop by checking for "]]>"
-        // State: IN_TAG | SPECIAL (but not SPECIAL_COMMENT)
+        // ===== State 4: IN_TAG_CDATA_OUTSIDE_ROOT - Inside <![CDATA[ ... ]]> outside root =====
+        for (int b = 0; b < 256; b++) TOC[4][b] = IGNORE; // Just skip until ]]>
+        // Handled in parse loop
 
-        // ===== 6. IN_TAG + IN_DQUOTE / IN_SQUOTE: Attribute value inside tag =====
-        int inTagDQuote = IN_TAG | IN_DQUOTE;
-        for (int b = 0; b < 256; b++) TOC[inTagDQuote][b] = IGNORE;
-        TOC[inTagDQuote]['"'] = new callback() {
-            public boolean call(XmlRunner r) {
-                r.setInDQuote(false);
-                return true;
-            }
-        };
+        // ===== State 5: IN_TAG_HTML_COMMENT_OUTSIDE_ROOT - Inside <!-- ... --> outside root =====
+        for (int b = 0; b < 256; b++) TOC[5][b] = IGNORE; // Just skip until -->
+        // Handled in parse loop
 
-        int inTagSQuote = IN_TAG | IN_SQUOTE;
-        for (int b = 0; b < 256; b++) TOC[inTagSQuote][b] = IGNORE;
-        TOC[inTagSQuote]['\''] = new callback() {
-            public boolean call(XmlRunner r) {
-                r.setInSQuote(false);
-                return true;
-            }
-        };
-
-        // ===== 7. IN_DQUOTE (flags=IN_DQUOTE): Inside "..." (outside tag) =====
-        int inDQuote = IN_DQUOTE;
-        for (int b = 0; b < 256; b++) TOC[inDQuote][b] = IGNORE; // Accumulate in parse loop
-        TOC[inDQuote]['"'] = new callback() { // End of double-quoted value
-            public boolean call(XmlRunner r) {
-                r.setInDQuote(false);
-                return true;
-            }
-        };
-
-        // ===== 8. IN_SQUOTE (flags=IN_SQUOTE): Inside '...' (outside tag) =====
-        int inSQuote = IN_SQUOTE;
-        for (int b = 0; b < 256; b++) TOC[inSQuote][b] = IGNORE;
-        TOC[inSQuote]['\''] = new callback() { // End of single-quoted value
-            public boolean call(XmlRunner r) {
-                r.setInSQuote(false);
-                return true;
-            }
-        };
-
-        // ===== 9. OUTSIDE TAG (flags=0): Text content =====
-        // Default: accumulate as inner text
-        for (int b = 0; b < 256; b++) TOC[0][b] = IGNORE;
-        TOC[0]['<'] = new callback() {
+        // ===== State 6: OUTSIDE_TAG_INSIDE_ROOT - Outside tag but inside root element =====
+        for (int b = 0; b < 256; b++) TOC[6][b] = IGNORE; // Accumulate as inner text in parse loop
+        TOC[6]['<'] = new callback() {
             public boolean call(XmlRunner r) {
                 r.onLt();
                 return true;
             }
         };
 
-        // ===== 10. COMMENT END: IN_TAG|SPECIAL|SPECIAL_COMMENT looking for --> =====
-        // Already defined above as inComment (line ~187)
+        // ===== State 7: IN_TAG_FIRST_BYTE_INSIDE_ROOT - First byte after '<' inside root =====
+        callback firstByteInside = new callback() {
+            public boolean call(XmlRunner r) {
+                byte[] src = r.planner.getSource();
+                r.linear[r.pointer - r.regionBegin] = src[r.pointer++];
+                return true;
+            }
+        };
+        for (int b = 0; b < 256; b++) TOC[7][b] = firstByteInside;
+        
+        TOC[7]['/'] = new callback() { // </ → close tag
+            public boolean call(XmlRunner r) {
+                // Close tag - will be handled in onGt
+                return true;
+            }
+        };
+        TOC[7]['?'] = new callback() { // <? → PI
+            public boolean call(XmlRunner r) {
+                r.onQuestion();
+                return true;
+            }
+        };
+        TOC[7]['!'] = new callback() { // <! → comment/CDATA/DOCTYPE
+            public boolean call(XmlRunner r) {
+                r.onBang();
+                return true;
+            }
+        };
+        TOC[7]['>'] = new callback() { // <> → empty tag
+            public boolean call(XmlRunner r) {
+                r.onGt();
+                return true;
+            }
+        };
+        TOC[7][' '] = attrNameStart;
+        TOC[7]['\t'] = attrNameStart;
+        TOC[7]['\n'] = attrNameStart;
+        TOC[7]['\r'] = attrNameStart;
+        TOC[7]['='] = new callback() {
+            public boolean call(XmlRunner r) {
+                r.onEquals();
+                return true;
+            }
+        };
 
-        // ===== 11. CDATA END: IN_TAG|SPECIAL looking for ]]> =====
-        // Handled in parse loop by peeking ahead
+        // ===== State 8: IN_TAG_INSIDE_ROOT - Parsing tag name/attributes inside root =====
+        callback inTagInside = new callback() {
+            public boolean call(XmlRunner r) {
+                byte[] src = r.planner.getSource();
+                r.linear[r.pointer - r.regionBegin] = src[r.pointer++];
+                return true;
+            }
+        };
+        for (int b = 0; b < 256; b++) TOC[8][b] = inTagInside;
+        
+        TOC[8]['>'] = new callback() {
+            public boolean call(XmlRunner r) {
+                r.onGt();
+                return true;
+            }
+        };
+        TOC[8][' '] = attrNameStart;
+        TOC[8]['\t'] = attrNameStart;
+        TOC[8]['\n'] = attrNameStart;
+        TOC[8]['\r'] = attrNameStart;
+        TOC[8]['='] = new callback() {
+            public boolean call(XmlRunner r) {
+                r.onEquals();
+                return true;
+            }
+        };
+        TOC[8]['"'] = new callback() {
+            public boolean call(XmlRunner r) {
+                r.onDQuote();
+                return true;
+            }
+        };
+        TOC[8]['\''] = new callback() {
+            public boolean call(XmlRunner r) {
+                r.onSQuote();
+                return true;
+            }
+        };
 
-        // ===== 12. SELF-CLOSING TAG: '/>' inside tag =====
-        // Handled in parse loop when seeing '/' followed by '>'
+        // ===== State 9: IN_TAG_CDATA_INSIDE_ROOT - Inside <![CDATA[ ... ]]> inside root =====
+        for (int b = 0; b < 256; b++) TOC[9][b] = IGNORE; // Just skip until ]]>
+        // Handled in parse loop
 
-        // ===== 13. UTF-8 MULTI-BYTE HANDLING =====
+        // ===== State 10: IN_TAG_HTML_COMMENT_INSIDE_ROOT - Inside <!-- ... --> inside root =====
+        for (int b = 0; b < 256; b++) TOC[10][b] = IGNORE; // Just skip until -->
+        // Handled in parse loop
+
+        // ===== State 13: IN_TAG_DOCTYPE_OUTSIDE_ROOT - Inside <!DOCTYPE ... > outside root =====
+        for (int b = 0; b < 256; b++) TOC[13][b] = IGNORE; // Just skip until >
+        // Handled in parse loop
+
+        // ===== State 14: IN_TAG_DOCTYPE_INSIDE_ROOT - Inside <!DOCTYPE ... > inside root =====
+        for (int b = 0; b < 256; b++) TOC[14][b] = IGNORE; // Just skip until >
+        // Handled in parse loop
+
+        // ===== State 11: IN_TARGET_TAG - Inside a registered target tag =====
+        callback inTargetTag = new callback() {
+            public boolean call(XmlRunner r) {
+                byte[] src = r.planner.getSource();
+                r.linear[r.pointer - r.regionBegin] = src[r.pointer++];
+                return true;
+            }
+        };
+        for (int b = 0; b < 256; b++) TOC[11][b] = inTargetTag;
+        
+        TOC[11]['>'] = new callback() {
+            public boolean call(XmlRunner r) {
+                r.onGt();
+                return true;
+            }
+        };
+        TOC[11][' '] = attrNameStart;
+        TOC[11]['\t'] = attrNameStart;
+        TOC[11]['\n'] = attrNameStart;
+        TOC[11]['\r'] = attrNameStart;
+        TOC[11]['='] = new callback() {
+            public boolean call(XmlRunner r) {
+                r.onEquals();
+                return true;
+            }
+        };
+        TOC[11]['"'] = new callback() {
+            public boolean call(XmlRunner r) {
+                r.onDQuote();
+                return true;
+            }
+        };
+        TOC[11]['\''] = new callback() {
+            public boolean call(XmlRunner r) {
+                r.onSQuote();
+                return true;
+            }
+        };
+
+        // ===== State 12: IN_TARGET_INNER - Inside target tag content (innerText & child tags) =====
+        for (int b = 0; b < 256; b++) TOC[12][b] = IGNORE; // Accumulate as inner text in parse loop
+        TOC[12]['<'] = new callback() {
+            public boolean call(XmlRunner r) {
+                r.onLt();
+                return true;
+            }
+        };
+
+        // ===== UTF-8 MULTI-BYTE HANDLING =====
         // Continuation bytes (0x80-0xBF) → skip in tag name/text
-        for (int flags = 0; flags < TOC.length; flags++) {
+        for (int s = 0; s < TOC.length; s++) {
             for (int b = 0x80; b <= 0xBF; b++) {
-                if (TOC[flags][b] == IGNORE) {
-                    TOC[flags][b] = new callback() {
+                if (TOC[s][b] == IGNORE) {
+                    TOC[s][b] = new callback() {
                         public boolean call(XmlRunner r) {
                             // Skip continuation byte
                             return true;
@@ -293,11 +391,6 @@ public final class XmlPlanner {
                     };
                 }
             }
-            // Leading bytes: skip appropriate number of following bytes
-            // 0xC0-0xDF: 2-byte sequence (skip 1 more)
-            // 0xE0-0xEF: 3-byte sequence (skip 2 more)
-            // 0xF0-0xF7: 4-byte sequence (skip 3 more)
-            // Handled in parse loop, not TOC
         }
     }
 
@@ -319,12 +412,6 @@ public final class XmlPlanner {
     XmlCallback getFileEndHandler() { return fileEndHandler; }
     XmlCallback getErrorHandler() { return errorHandler; }
 
-    /**
-     * ลงทะเบียน path + handler + token
-     * @param path   เช่น "ns:Parent/ns:Child/ns:Target" (แยกด้วย '/', ตัด prefix ก่อน ':' ออก)
-     * @param handler XmlCallback ที่จะได้รับ event TAG/ATTR/INNER/END
-     * @param token   object ใดๆ ที่จะคืนผ่าน XmlEvent.token ทุกครั้งที่ handler ถูกเรียก
-     */
     public void register(String path, XmlCallback handler, Object token) {
         if (path == null || path.isEmpty()) throw new IllegalArgumentException("path empty");
         if (handler == null) throw new IllegalArgumentException("handler null");
@@ -333,13 +420,17 @@ public final class XmlPlanner {
         XmlNode curr = root;
 
         for (String seg : segments) {
-            if (seg.isEmpty()) continue; // กัน "//" หรือ "/" นำหน้า
-            // ตัด prefix (ns:name -> name)
+            if (seg.isEmpty()) continue;
             int colon = seg.indexOf(':');
             String local = (colon >= 0) ? seg.substring(colon + 1) : seg;
-            byte[] nameBytes = local.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            
+            byte[] nameBytes;
+            if ("*".equals(local)) {
+                nameBytes = new byte[] { '*' };
+            } else {
+                nameBytes = local.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            }
 
-            // หา child เดิม
             XmlNode child = curr.findChild(nameBytes, 0, nameBytes.length);
             if (child == null) {
                 child = new XmlNode(nameBytes, nameBytes.length);
@@ -348,7 +439,6 @@ public final class XmlPlanner {
             curr = child;
         }
 
-        // leaf node: ผูก handler + token
         curr.handler = handler;
         curr.token = token;
     }

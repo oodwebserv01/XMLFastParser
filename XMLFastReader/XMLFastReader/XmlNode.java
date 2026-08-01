@@ -50,17 +50,27 @@ final class XmlNode {
         this.nameLen = nameLen;
     }
 
-    /** หา child ที่ local name ตรงกับ buf[off..off+len]; คืน null ถ้าไม่มี (hot path) */
+    /** หา child ที่ local name ตรงกับ buf[off..off+len]; คืน null ถ้าไม่มี (hot path)
+     * รองรับ wildcard: child ที่มี nameLen == 1 และ name[0] == '*' จะ match ทุกชื่อ */
     XmlNode findChild(byte[] buf, int off, int len) {
         XmlNode[] c = children;
+        XmlNode wildcardChild = null;
+        
         for (int i = 0; i < c.length; i++) {
             XmlNode n = c[i];
+            // Check for wildcard node (name = "*")
+            if (n.nameLen == 1 && n.name[0] == '*') {
+                wildcardChild = n;
+                continue;
+            }
             if (n.nameLen != len) continue;
             int j = 0;
             while (j < len && n.name[j] == buf[off + j]) j++;
             if (j == len) return n;
         }
-        return null;
+        
+        // Return wildcard child if no exact match found
+        return wildcardChild;
     }
 
     /** เพิ่ม child (build phase เท่านั้น — PLAN 11.6 registry read-only หลัง build) */
