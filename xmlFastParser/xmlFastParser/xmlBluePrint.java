@@ -5,6 +5,8 @@ import java.lang.invoke.VarHandle;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.locks.LockSupport;
+import xmlFastParser.xmlBluePrintCall;
+import xmlFastParser.xmlBluePrintNode;
 
 public class xmlBluePrint {
 /*
@@ -150,9 +152,9 @@ Usage Instructions
          root.isChildOfTarget = false;
          root.isTarget = false;
          root.idToken = rootToken;
-         // Validate thread count is positive
+         // Default to 1 thread if not set
          if (threadCount <= 0) {
-            throw new IllegalStateException("threadCount must be > 0, call setThreadCount() first");
+            threadCount = 1;
          }
 
          // set state as Running 
@@ -333,6 +335,21 @@ Usage Instructions
       }
    };
 
+   /**
+    * Distributor thread function that assigns XML parsing jobs to worker threads.
+    * Runs in a loop to continuously fetch jobs from the queue and distribute them
+    * to available worker threads in a round-robin fashion.
+    * 
+    * Processing steps:
+    * 1. Wait for a job to become available in the queue
+    * 2. For each available job, attempt to assign it to the next worker thread
+    * 3. If a worker accepts the job, increment the pushed counter
+    * 4. Wait for at least one job to be processed before continuing
+    * 5. Rotate to the next worker thread (round-robin distribution)
+    * 6. If all workers are full, wait before trying again
+    * 7. Handle pause states by waiting until resumed
+    * 8. Exit when shutting down or force shutdown is requested
+    */
    private void jobDistributor() {
       
       // wait until job come
@@ -455,6 +472,17 @@ Usage Instructions
       }
    };   
 
+   /**
+    * Handles the closing of an XML tag.
+    * Called when parsing encounters a closing tag (e.g., </tag>).
+    * 
+    * Processing steps:
+    * 1. If the current node is a target node (registered path), call its handler for the close tag event
+    * 2. If the handler returns false, skip to the next XML document
+    * 3. Move back to the parent node
+    * 4. Set the appropriate state based on whether the parent is a target node
+    * 5. Set the value pointer to the current position
+    */
    private static final CELL HD_CLOSINGTAG = new CELL() {
       @Override
       public void call(xmlBluePrintHolder holder) {
@@ -823,6 +851,16 @@ Usage Instructions
       }
    };   
 
+   /**
+    * Checks if the current tag is the root tag by examining if it's a closing tag.
+    * Called when parsing encounters a tag name after '<' (e.g., in <tag> or </tag>).
+    * 
+    * Processing steps:
+    * 1. Check if the previous character was '/' (indicating a closing tag)
+    * 2. If it's a closing tag ('/'), move to S_HEADER state to process the closing
+    * 3. If it's an opening tag, move to S_ROOT_OPEN state to continue processing
+    * 4. In both cases, increment the pointer appropriately
+    */
    private static final CELL HD_CHK_ROOT = new CELL() {
       @Override
       public void call(xmlBluePrintHolder holder) {
@@ -837,6 +875,20 @@ Usage Instructions
       }
    };   
 
+   /**
+    * Handles the opening of the root XML tag.
+    * Called when parsing encounters the root tag opening (e.g., <root>).
+    * 
+    * Processing steps:
+    * 1. Mark the end of the root tag name
+    * 2. Compute hash for the root tag name
+    * 3. Set current node to root
+    * 4. Call the root handler for the open tag event
+    * 5. If handler returns false, skip to next XML document
+    * 6. Handle self-closing root tags (<root/>) by transitioning to inner content
+    * 7. For root tags with attributes, transition to attribute processing
+    * 8. For simple root tags (>), transition to processing inner content
+    */
    private static final CELL HD_ROOT_OPEN = new CELL() {
       @Override
       public void call(xmlBluePrintHolder holder) {
@@ -858,6 +910,18 @@ Usage Instructions
       }
    };   
 
+   /**
+    * Handles XML attributes without values (e.g., <tag attr> where attr has no explicit value).
+    * Called when parsing encounters an attribute name followed by a delimiter (space, >, /).
+    * 
+    * Processing steps:
+    * 1. Mark the end of the attribute name
+    * 2. Determine if this is the last attribute in the tag or a self-closing tag
+    * 3. If there's an attribute name, callback to the user handler with empty value
+    * 4. Handle self-closing tags (<tag/>) by calling close tag handler
+    * 5. For last attributes, transition to processing tag inner content
+    * 6. For more attributes, prepare to read the next attribute name
+    */
    private static final CELL HD_NOVAL_ATTR = new CELL() {
       @Override
       public void call(xmlBluePrintHolder holder) {
@@ -940,6 +1004,19 @@ Usage Instructions
       }
    };
 
+   /**
+    * Handles the end of an attribute value in XML parsing.
+    * Called when we've finished reading an attribute value (after the = sign)
+    * and encounter a delimiter (space, >, /, ", or ').
+    * 
+    * Processing steps:
+    * 1. Mark the end of the attribute value
+    * 2. Determine if this is the last attribute in the tag or a self-closing tag
+    * 3. If there's an attribute, callback to the user handler
+    * 4. Handle self-closing tags (<tag/>) by calling close tag handler
+    * 5. For last attributes, transition to processing tag inner content
+    * 6. For more attributes, prepare to read the next attribute name
+    */
    private static final CELL HD_END_VALUE = new CELL() {
       @Override
       public void call(xmlBluePrintHolder holder) {
@@ -1079,60 +1156,76 @@ Usage Instructions
    private static final CELL HD_OPENTAG = new CELL() {
       @Override
       public void call(xmlBluePrintHolder holder) {
+         // Step 1: Mark the end of the tag name (current pointer points to the first char after the tag name)
          holder.tagNameEnd = holder.pointer++;
-         boolean isClosed = ('>'==holder.jobStart[holder.cp][holder.pointer-1]);
-         boolean isSelfClosed = ('/'==holder.jobStart[holder.cp][holder.pointer-2]);
-         if (isSelfClosed) holder.tagNameEnd--;
+         
+         // Step 2: Check if the tag is closed with '>' or self-closed with '/>'
+         boolean isClosed = holder.jobStart[holder.cp][holder.pointer - 1] == '>';
+         boolean isSelfClosed = holder.jobStart[holder.cp][holder.pointer - 2] == '/';
+         
+         // Adjust tagNameEnd for self-closing tags (remove the '/')
+         if (isSelfClosed) {
+            holder.tagNameEnd--;
+         }
 
+         // Compute hash for the tag name
          long hTagName = hash(holder.jobStart[holder.cp], holder.tagName, holder.tagNameEnd);
          
+         // Step 3: If we are currently skipping an unregistered branch (skipDept > 0)
          if (holder.skipDept > 0) {
-            if ( hTagName == holder.skipName) holder.skipDept++;
+            // If this tag matches the one we are skipping, increment the skip depth
+            if (hTagName == holder.skipName) {
+               holder.skipDept++;
+            }
             holder.xmlState = S_UNREGIST_BRANCH;
             return;
          }
 
+         // Step 4: Check if the current node has a child with this tag name (registered path)
          if (holder.currentNode.hasChild(hTagName)) {
-            // case registed Node
+            // Case: registered node
             holder.currentNode = holder.currentNode.getChild(hTagName);
             
-            // Send OPEN_TAG callback for target nodes
-            if (holder.currentNode.isTarget ) {
+            // Step 5: If this is a target node, send the OPEN_TAG callback
+            if (holder.currentNode.isTarget) {
                if (!holder.currentNode.handler.call(
                   holder.currentNode.idToken, holder, 
                   EV_OPEN_TAG, 
                   holder.tagName, holder.tagNameEnd, 
                   0, 0)) {
+                  // If the handler returns false, skip to next XML
                   HD_NEXT_XML(holder);
                   return;
                }
             }
             
+            // Step 6: Handle different tag closing scenarios
             if (isClosed) {
-               // case tag closed with >
+               // Case: tag closed with '>'
                if (holder.currentNode.isTarget) {
-                  // case target tag need to cap inner
+                  // For target tags, we need to capture inner content
                   holder.xmlState = S_TARGET_INNER;
                   holder.value = holder.pointer;
                } else {
-                  // case non target tag
+                  // For non-target tags, we process inner content
                   holder.xmlState = S_INNER;
                }
             } else if (isSelfClosed) {
-               // case self-closed tag />
+               // Case: self-closed tag '/>'
                // Send CLOSE_TAG callback for target nodes
                if (holder.currentNode.isTarget) {
                   if (!holder.currentNode.handler.call(
                      holder.currentNode.idToken, holder, 
                      EV_CLOSE_TAG, 
                      0, 0, 0, 0)) {
+                     // If handler returns false, skip to next XML
                      HD_NEXT_XML(holder);
                      return;
                   }
                }
-               // Move back to parent
+               // Move back to parent node
                holder.currentNode = holder.currentNode.parent;
-               // Set appropriate state
+               // Set appropriate state based on whether parent is a target
                if (holder.currentNode.isTarget) {
                   holder.xmlState = S_TARGET_INNER;
                   holder.value = holder.pointer;
@@ -1140,35 +1233,45 @@ Usage Instructions
                   holder.xmlState = S_INNER;
                }
             } else {
-               // case tag has attributes (ends with space or other)
+               // Case: tag has attributes (ends with space or other)
                if (holder.currentNode.isTarget) {
-                  // case target tag need to cap attrs
+                  // For target tags, we need to capture attributes
                   holder.xmlState = S_TARGET_ATTR;
                   holder.attrName = holder.pointer; // Start of attribute name
                   holder.valEnd = holder.value = holder.attrName;
                } else {
-                  // case non target tag just looking for >
+                  // For non-target tags, just look for '>'
                   holder.xmlState = S_ATTR;
                }
             }
          } else {
-            // case unregisted node
-            // Store hash in skipName and increment skipDept
+            // Step 7: Case: unregistered node (not in the registered path)
+            // Store hash in skipName and increment skipDepth
             holder.skipName = hTagName;
             holder.skipDept++;
             holder.xmlState = S_UNREGIST_BRANCH;
          }
-         return ;
+         return;
       }
    };
 
    private static final CELL HD_TAG_CLOSE = new CELL() {
       @Override
       public void call(xmlBluePrintHolder holder) {
-         holder.pointer++; // Move past the '>' character
-         boolean isSelfClosed = ('/'==holder.jobStart[holder.cp][holder.pointer-2]);
+         // Move pointer past the '>' character
+         holder.pointer++;
+         
+         // Check if this is a self-closing tag (e.g., <tag/>)
+         // Self-closing tags have '/' as the second-to-last character before '>'
+         boolean isSelfClosed = holder.jobStart[holder.cp][holder.pointer - 2] == '/';
+         
          if (isSelfClosed) {
+            // For self-closing tags, we move back to the parent node
+            // and set the appropriate state based on whether parent is a target
             holder.currentNode = holder.currentNode.parent;
+            
+            // If parent is a target node, we continue processing inner content
+            // Otherwise, we process regular content
             if (holder.currentNode.isTarget) {
                holder.xmlState = S_TARGET_INNER;
                holder.value = holder.pointer;
@@ -1176,13 +1279,12 @@ Usage Instructions
                holder.xmlState = S_INNER;
             }
             return;
-         } 
-
+         }
+         
+         // For regular closing tags (e.g., </tag>), we continue with inner content
          holder.xmlState = S_INNER;
-         return;
       }
    };
-
    private static final CELL HD_LT = new CELL() {
       @Override
       public void call(xmlBluePrintHolder holder) {
@@ -1205,41 +1307,58 @@ Usage Instructions
    private static final CELL HD_ENDTAG_NAME = new CELL() {
       @Override
       public void call(xmlBluePrintHolder holder) {
+         // Step 1: Mark the end of the tag name (current pointer points to the first char after the tag name)
          holder.tagNameEnd = holder.pointer++;
 
-         if (0 == holder.hTagName) holder.hTagName = hash(holder.jobStart[holder.cp],holder.tagName,holder.tagNameEnd);
+         // Compute hash for the tag name if not already computed
+         if (holder.hTagName == 0) {
+            holder.hTagName = hash(holder.jobStart[holder.cp], holder.tagName, holder.tagNameEnd);
+         }
 
-         if ('>' != holder.jobStart[holder.cp][holder.pointer-1]) {
+         // Step 2: Check if we have the closing '>' immediately after the tag name
+         if (holder.jobStart[holder.cp][holder.pointer - 1] != '>') {
+            // Missing '>', go to state to handle until we find '>'
             holder.xmlState = S_GT_ONLY;
             return;
          }
 
-         // unregist branch
-         if  (holder.skipDept > 0) {
-            if (holder.hTagName == holder.skipName) holder.skipDept--;
+         // Step 3: If we are currently skipping an unregistered branch (skipDept > 0)
+         if (holder.skipDept > 0) {
+            // If this tag matches the one we are skipping, decrement the skip depth
+            if (holder.hTagName == holder.skipName) {
+               holder.skipDept--;
+            }
+
+            // After processing, check if we have exited the skipped branch
             if (holder.skipDept == 0) {
+               // We are now back to the registered branch
+               // Set state based on whether we are in a child of a target or not
                if (holder.currentNode.isChildOfTarget) {
-                  holder.xmlState =  S_TARGET_INNER;
+                  holder.xmlState = S_TARGET_INNER;
                   holder.value = holder.pointer;
-               }  else {
+               } else {
                   holder.xmlState = S_INNER;
-               }            
+               }
             } else {
+               // Still inside a skipped branch
                holder.xmlState = S_UNREGIST_BRANCH;
             }
             return;
-         } else {
-            if (holder.hTagName != holder.currentNode.tagHash) {
-               // ERROR EndTag not match to BeginTag
-               if (! errorHandler.call(errorToken, holder, EV_END_NE_BEGIN, 0, 0, 0, 0)){
-                  HD_NEXT_XML(holder);
-                  return;
-               }
-            }
-            holder.currentNode.HD_CLOSINGTAG.call(holder);
-
          }
-         return;
+
+         // Step 4: We are in a registered branch (skipDept == 0)
+         // Check if the end tag matches the start tag (by comparing hashes)
+         if (holder.hTagName != holder.currentNode.tagHash) {
+            // Mismatch: end tag does not match the start tag
+            if (!errorHandler.call(errorToken, holder, EV_END_NE_BEGIN, 0, 0, 0, 0)) {
+               // If the error handler did not consume the error, move to next XML
+               HD_NEXT_XML(holder);
+            }
+            return;
+         }
+
+         // Step 5: Tags match, proceed to handle the closing tag
+         holder.currentNode.HD_CLOSINGTAG.call(holder);
       }
    };
 
