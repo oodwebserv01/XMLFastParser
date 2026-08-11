@@ -90,16 +90,4 @@ public class xmlBluePrintNode {
     public boolean hasChild(long tagHash) {
         return children.containsKey(tagHash);
     }
-    
-    /**
-     * Get all child hashes (for fast lookup in holder).
-     */
-    public long[] getChildHashes() {
-        long[] hashes = new long[children.size()];
-        int i = 0;
-        for (Long h : children.keySet()) {
-            hashes[i++] = h;
-        }
-        return hashes;
-    }
 }

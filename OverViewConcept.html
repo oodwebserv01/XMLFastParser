@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XMLFastReader - Overview & Concepts</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.7; max-width: 900px; margin: 0 auto; padding: 20px; color: #333; }
+        h1 { border-bottom: 3px solid #2c3e50; padding-bottom: 10px; color: #2c3e50; }
+        h2 { border-bottom: 1px solid #ddd; padding-bottom: 5px; margin-top: 35px; color: #34495e; }
+        h3 { color: #2c3e50; }
+        code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-family: 'Monaco', 'Consolas', monospace; }
+        pre { background: #2d2d2d; color: #f8f8f2; padding: 15px; border-radius: 5px; overflow-x: auto; }
+        pre code { background: none; padding: 0; color: inherit; }
+        .note { background: #e8f4fd; border-left: 4px solid #3498db; padding: 12px 16px; margin: 15px 0; border-radius: 0 4px 4px 0; }
+        .concept { background: #f0f7ff; border: 1px solid #d0e4ff; border-radius: 8px; padding: 20px; margin: 20px 0; }
+        .concept h3 { margin-top: 0; color: #2980b9; }
+        .diagram { background: #f8f9fa; border: 1px solid #ddd; border-radius: 5px; padding: 15px; margin: 15px 0; font-family: monospace; white-space: pre; overflow-x: auto; }
+        .comparison { width: 100%; border-collapse: collapse; margin: 15px 0; }
+        .comparison th, .comparison td { padding: 10px; border: 1px solid #ddd; text-align: left; }
+        .comparison th { background: #2c3e50; color: white; }
+        .comparison tr:nth-child(even) { background: #f9f9f9; }
+        .toc { background: #f8f9fa; padding: 20px; border-radius: 5px; margin-bottom: 30px; }
+        .toc ul { list-style: none; padding-left: 20px; }
+        .toc li { margin: 10px 0; }
+        .toc a { text-decoration: none; color: #2c3e50; font-weight: 500; }
+        .toc a:hover { color: #3498db; }
+        .highlight { background: #fff3cd; padding: 2px 4px; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <h1>XMLFastReader — Overview & Concepts</h1>
+
+    <div class="toc">
+        <h2>Table of Contents</h2>
+        <ul>
+            <li><a href="#what">What is XMLFastReader?</a></li>
+            <li><a href="#core-philosophy">Core Design Philosophy</a></li>
+            <li><a href="#key-concepts">Key Concepts</a>
+                <ul>
+                    <li><a href="#fsm-concept">Byte-Level FSM</a></li>
+                    <li><a href="#toc-concept">Transition Table (TOC)</a></li>
+                    <li><a href="#hash-concept">Hash-Based Path Matching</a></li>
+                    <li><a href="#thread-concept">Lock-Free Threading</a></li>
+                    <li><a href="#predict-concept">Predictive Shortcuts</a></li>
+                </ul>
+            </li>
+            <li><a href="#comparison">Comparison with Other Parsers</a></li>
+            <li><a href="#when-to-use">When to Use XMLFastReader</a></li>
+            <li><a href="#limitations">Limitations & Trade-offs</a></li>
+        </ul>
+    </div>
+
+    <section id="what">
+        <h2>What is XMLFastReader?</h2>
+        <p><strong>XMLFastReader</strong> is a high-performance, multi-threaded XML parser for Java that prioritizes <strong>throughput</strong> and <strong>low latency</strong> over convenience. It's designed for scenarios where you process large volumes of structurally similar XML files and need maximum parsing speed with minimal GC pressure.</p>
+
+        <div class="concept">
+            <h3>🎯 Primary Goal</h3>
+            <p>Parse XML at <strong>near-memory-bandwidth speeds</strong> by eliminating all allocations, branches, and locks from the hot path.</p>
+        </div>
+    </section>
+
+    <section id="core-philosophy">
+        <h2>Core Design Philosophy</h2>
+
+        <table class="comparison">
+            <tr><th>Traditional Parsers</th><th>XMLFastReader</th></tr>
+            <tr><td>Tree construction (DOM) or event streaming (SAX)</td><td><strong>Path-targeted callbacks</strong> — only what you register</td></tr>
+            <tr><td>Character-by-character with boundary checks</td><td><strong>Byte-level table dispatch</strong> — O(1) array lookup</td></tr>
+            <tr><td>String allocation for every token</td><td><strong>Zero-copy</strong> — offsets into original buffer</td></tr>
+            <tr><td>Single-threaded</td><td><strong>Lock-free multi-threaded</strong> — ring buffers</td></tr>
+            <tr><td>Generic XML handling</td><td><strong>Schema-aware optimization</strong> — knows your paths upfront</td></tr>
+            <tr><td>Error recovery, validation</td><td><strong>Fail-fast</strong> — malformed = skip document</td></tr>
+        </table>
+
+        <div class="note">
+            <strong>Trade-off:</strong> You must declare the XML paths you care about <em>before</em> parsing. In exchange, you get 5-50× speedup over SAX/DOM for targeted extraction.
+        </div>
+    </section>
+
+    <section id="key-concepts">
+        <h2>Key Concepts</h2>
+
+        <section id="fsm-concept">
+            <h3>1. Byte-Level Finite State Machine</h3>
+
+            <div class="concept">
+                <h4>The Insight</h4>
+                <p>XML is a <strong>regular language at the byte level</strong>. Every byte transitions between a finite set of states. Instead of <code>if/else</code> chains, use a <strong>transition table</code>:</p>
+            </div>
+
+            <div class="diagram">
+Traditional:                    Table-Driven (XMLFastReader):
+if (byte == '<') {              TOC[currentState][byte].call(holder);
+    if (next == '/') close();       // One array load + virtual call
+    else if (isAlpha) open();
+    else error();
+} else if (byte == '>') {       // No branches, no allocations
+    ...
+}
+// 20+ bytecodes/byte            // ~5 bytecodes/byte
+            </div>
+
+            <h4>54 States</h4>
+            <p>States encode <em>context</em> — are we in prologue? root? target content? attribute value? The state number itself is the "am I collecting data?" flag.</p>
+
+            <div class="diagram">
+Target states (callbacks fire):     Non-target states (structure only):
+  S_TARGET_INNER (35)                   S_INNER (50)
+  S_TARGET_ATTR (36)                    S_ATTR (49)
+  S_VAL_ATTR (37)                       S_TAG_OPEN (48)
+  S_QUOTE_VALUE (38)                    S_LT (41)
+  S_DQUOTE_VALUE (39)                   S_BANG (42)...
+  S_VAL_VALUE (40)                      S_UNREGIST_BRANCH (53)
+</div>
+        </section>
+
+        <section id="toc-concept">
+            <h3>2. Transition Table (TOC)</h3>
+
+            <p><code>CELL[54][256]</code> — One handler per state×byte combination.</p>
+
+            <h4>Construction Strategy</h4>
+            <ol>
+                <li><strong>Default:</strong> All entries = <code>HD_SAMESTATE</code> (<code>pointer++</code>)</li>
+                <li><strong>UTF-8 Fast Path (all states):</strong>
+                    <ul>
+                        <li><code>0xC0-0xDF</code> → <code>SKIP2_HANDLER</code></li>
+                        <li><code>0xE0-0xEF</code> → <code>SKIP3_HANDLER</code></li>
+                        <li><code>0xF0-0xF7</code> → <code>SKIP4_HANDLER</code></li>
+                    </ul>
+                </li>
+                <li><strong>Per-state defaults</strong></li>
+                <li><strong>Specific transitions</strong></li>
+            </ol>
+
+            <div class="note">
+                Multi-byte UTF-8 sequences are <strong>skipped entirely</strong> — continuation bytes never reach the state machine. This eliminates branching on high-bit bytes.
+            </div>
+        </section>
+
+        <section id="hash-concept">
+            <h3>3. Hash-Based Path Matching</h3>
+
+            <h4>Why Hash?</h4>
+            <ul>
+                <li>O(1) lookup vs O(n) string compare</li>
+                <li>Fixed-size keys (64-bit) — no allocation</li>
+                <li>Namespace-agnostic: <code>ns:Book</code> → same hash as <code>Book</code></li>
+            </ul>
+
+            <h4>FNV-1a + SplitMix64</h4>
+            <pre><code>long h = 0xCBF29CE484222325L;  // FNV offset basis
+for (byte b : name) {
+    if (b == ':' || b == '}') break;  // Strip namespace
+    h ^= (b & 0xFF);
+    h *= 0x100000001B3L;              // FNV prime
+}
+// SplitMix64 finalizer for avalanche
+h ^= h >>> 33;
+h *= 0xFF51AFD7ED558CCDL;
+h ^= h >>> 33;
+h *= 0xC4CEB9FE1A85EC53L;
+h ^= h >>> 33;
+return h;</code></pre>
+
+            <h4>Tree Structure</h4>
+            <pre><code>root (hash=0)
+  └─ "catalog" (hash=H1, isTarget=false)
+       └─ "book" (hash=H2, isTarget=false)
+            └─ "author" (hash=H3, isTarget=true, handler, token)
+            └─ "title"  (hash=H4, isTarget=true, handler, token)</code></pre>
+
+            <p>Only <strong>leaf nodes</strong> (last segment of <code>regist()</code>) get <code>handler</code>/<code>token</code> and <code>isTarget=true</code>. Intermediate nodes are pure routing.</p>
+        </section>
+
+        <section id="thread-concept">
+            <h3>4. Lock-Free Threading</h3>
+
+            <h4>Two-Level Ring Buffers</h4>
+            <div class="diagram">
+Global Queue (Blueprint, 16K):
+  Producer → [job][job][job]... → Distributor
+
+Per-Holder Queue (Worker, 512 each):
+  Distributor → [job][job]... → Worker Thread
+            </div>
+
+            <h4>No Locks — Only:</h4>
+            <ul>
+                <li><code>VarHandle.fullFence()</code> — memory barrier after slot write</li>
+                <li><code>volatile</code> pointers — visibility</li>
+                <li><code>LockSupport.park/unpark</code> — thread parking</li>
+            </ul>
+
+            <h4>Thread Roles</h4>
+            <table>
+                <tr><th>Thread</th><th>Role</th></tr>
+                <tr><td>Distributor</td><td>Round-robins global jobs to holders</td></tr>
+                <tr><td>Worker N</td><td>Owns one holder; parses sequentially</td></tr>
+            </table>
+
+            <div class="concept">
+                <h4>Key Property</h4>
+                <p><strong>Blueprint is read-only after init.</strong> TOC, path tree, log store never change. Each holder is single-threaded — no internal synchronization needed.</p>
+            </div>
+        </section>
+
+        <section id="predict-concept">
+            <h3>5. Predictive Shortcuts (Log-Based Acceleration)</h3>
+
+            <h4>Concept</h4>
+            <p>Structurally similar XML files have similar <strong>byte-distance fingerprints</strong> between targets. Learn from past parses to skip FSM for non-target regions.</p>
+
+            <h4>Structural Fingerprint</h4>
+            <pre><code>Log = [ (dist₀, hash₀), (dist₁, hash₁), ..., (distₙ, hashₙ) ]
+      dist₀ = bytes from <root to first target
+      distᵢ = bytes from targetᵢ₋₁ to targetᵢ
+      hashᵢ = FNV-1a(target tag name)</code></pre>
+
+            <h4>Similarity Score</h4>
+            <pre><code>score = 0.7 × tagSequenceMatch + 0.3 × distanceRatioMatch
+
+tagSequenceMatch = longestCommonPrefix / max(len)
+distanceRatioMatch = avg(1 - |storedRatio - emergingRatio| / maxRatio)</code></pre>
+
+            <h4>Prediction Flow</h4>
+            <ol>
+                <li>Parse document → build log → store in ring buffer (10K capacity)</li>
+                <li>New document: after 1st target, query best-matching log</li>
+                <li>Worker jumps to <code>predictedOffset</code>, peeks tag hash</li>
+                <li>Match → skip FSM for jumped region</li>
+                <li>Mismatch → fallback to normal FSM</li>
+            </ol>
+
+            <div class="note">
+                <strong>Zero risk:</strong> Predictions are <em>verified</em> before use. Mismatch = immediate fallback. No correctness compromise.
+            </div>
+        </section>
+    </section>
+
+    <section id="comparison">
+        <h2>Comparison with Other Parsers</h2>
+
+        <table class="comparison">
+            <tr><th>Parser</th><th>Mode</th><th>Allocations</th><th>Threading</th><th>Best For</th></tr>
+            <tr><td>DOM</td><td>Tree</td><td>High (full tree)</td><td>Single</td><td>Small docs, random access</td></tr>
+            <tr><td>SAX</td><td>Streaming</td><td>Medium (events)</td><td>Single</td><td>Sequential, unknown schema</td></tr>
+            <tr><td>StAX</td><td>Pull</td><td>Medium</td><td>Single</td><td>Streaming, selective</td></tr>
+            <tr><td>VTD-XML</td><td>Index-based</td><td>Low (index)</td><td>Single</td><td>XPath, modification</td></tr>
+            <tr><td><strong>XMLFastReader</strong></td><td><strong>Path-targeted</strong></td><td><strong>Zero (hot path)</strong></td><td><strong>Multi (lock-free)</strong></td><td><strong>High-volume known schema</strong></td></tr>
+        </table>
+
+        <h3>When XMLFastReader Wins</h3>
+        <ul>
+            <li>Processing 10K+ XML files/hour</li>
+            <li>Extracting specific fields from large XML</li>
+            <li>Schema is stable (known paths upfront)</li>
+            <li>Multi-core hardware available</li>
+            <li>GC pauses must be minimized</li>
+        </ul>
+    </section>
+
+    <section id="when-to-use">
+        <h2>When to Use XMLFastReader</h2>
+
+        <div class="concept">
+            <h3>✅ Ideal Use Cases</h3>
+            <ul>
+                <li><strong>Log/Telemetry Processing:</strong> Millions of similar XML events</li>
+                <li><strong>Data Ingestion Pipelines:</strong> ETL from XML feeds (finance, healthcare, IoT)</li>
+                <li><strong>Message Bus Parsing:</strong> SOAP, FIXML, custom XML protocols</li>
+                <li><strong>Batch XML Transformation:</strong> Convert XML → CSV/JSON/DB at scale</li>
+                <li><strong>Monitoring/Alerting:</strong> Real-time XML stream analysis</li>
+            </ul>
+        </div>
+
+        <div class="concept">
+            <h3>❌ Not Ideal For</h3>
+            <ul>
+                <li>Ad-hoc XML exploration (unknown structure)</li>
+                <li>One-off parsing of small files</li>
+                <li>XPath queries on arbitrary paths</li>
+                <li>XML modification/round-trip</li>
+                <li>Schema validation required</li>
+            </ul>
+        </div>
+    </section>
+
+    <section id="limitations">
+        <h2>Limitations & Trade-offs</h2>
+
+        <table class="comparison">
+            <tr><th>Limitation</th><th>Impact</th><th>Workaround</th></tr>
+            <tr><td>Paths must be known at registration time</td><td>No dynamic XPath</td><td>Register superset of paths</td></tr>
+            <tr><td>No DTD/XSD validation</td><td>Malformed XML may parse partially</td><td>Pre-validate or use error handler</td></tr>
+            <tr><td>No namespace awareness in callbacks</td><td>Prefix stripped in hash</td><td>Include namespace in path if needed</td></tr>
+            <tr><td>No mixed content model</td><td>Text + elements interleaved</td><td>Use EV_INNER_TEXT for text nodes</td></tr>
+            <tr><td>CDATA not explicitly supported</td><td>Treated as text until '>' found</td><td>Usually works; test your data</td></tr>
+            <tr><td>Fixed queue sizes</td><td>Bursty producers may block</td><td>Tune thread count, add backpressure</td></tr>
+            <tr><td>Java 9+ required</td><td>VarHandle dependency</td><td>Use Java 9+ runtime</td></tr>
+        </table>
+
+        <h3>Performance Trade-offs</h3>
+        <ul>
+            <li><strong>First parse:</strong> No prediction benefit (cold start)</li>
+            <li><strong>Dissimilar XML:</strong> Predictions disabled after mismatch</li>
+            <li><strong>Small files:</strong> Thread overhead may dominate</li>
+            <li><strong>Deep nesting:</strong> Skip depth limited to 32</li>
+        </ul>
+    </section>
+
+    <hr style="margin-top: 40px;">
+    <p style="color: #999; font-size: 0.9em; text-align: center;">XMLFastReader — High-performance parallel XML parser with predictive shortcuts</p>
+</body>
+</html>

@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XMLFastReader - User Manual</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; max-width: 900px; margin: 0 auto; padding: 20px; color: #333; }
+        h1 { border-bottom: 3px solid #2c3e50; padding-bottom: 10px; color: #2c3e50; }
+        h2 { border-bottom: 1px solid #ddd; padding-bottom: 5px; margin-top: 30px; color: #34495e; }
+        h3 { color: #2c3e50; }
+        code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-family: 'Monaco', 'Consolas', monospace; }
+        pre { background: #2d2d2d; color: #f8f8f2; padding: 15px; border-radius: 5px; overflow-x: auto; }
+        pre code { background: none; padding: 0; color: inherit; }
+        .note { background: #e8f4fd; border-left: 4px solid #3498db; padding: 12px 16px; margin: 15px 0; border-radius: 0 4px 4px 0; }
+        .warning { background: #fef3e2; border-left: 4px solid #f39c12; padding: 12px 16px; margin: 15px 0; border-radius: 0 4px 4px 0; }
+        .tip { background: #e8f8f0; border-left: 4px solid #27ae60; padding: 12px 16px; margin: 15px 0; border-radius: 0 4px 4px 0; }
+        table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+        th, td { padding: 10px; border: 1px solid #ddd; text-align: left; }
+        th { background: #2c3e50; color: white; }
+        tr:nth-child(even) { background: #f9f9f9; }
+        .toc { background: #f8f9fa; padding: 20px; border-radius: 5px; margin-bottom: 30px; }
+        .toc ul { list-style: none; padding-left: 20px; }
+        .toc li { margin: 8px 0; }
+        .toc a { text-decoration: none; color: #2c3e50; }
+        .toc a:hover { color: #3498db; }
+    </style>
+</head>
+<body>
+    <h1>XMLFastReader - User Manual</h1>
+
+    <div class="toc">
+        <h2>Table of Contents</h2>
+        <ul>
+            <li><a href="#overview">1. Overview</a></li>
+            <li><a href="#quick-start">2. Quick Start</a></li>
+            <li><a href="#registration">3. Path Registration</a></li>
+            <li><a href="#callbacks">4. Event Callbacks</a></li>
+            <li><a href="#threading">5. Thread Configuration</a></li>
+            <li><a href="#job-submission">6. Submitting XML Jobs</a></li>
+            <li><a href="#lifecycle">7. Lifecycle Control</a></li>
+            <li><a href="#predictive">8. Predictive Shortcuts (Advanced)</a></li>
+            <li><a href="#best-practices">9. Best Practices</a></li>
+            <li><a href="#troubleshooting">10. Troubleshooting</a></li>
+        </ul>
+    </div>
+
+    <section id="overview">
+        <h2>1. Overview</h2>
+        <p><strong>XMLFastReader</strong> is a high-performance, multi-threaded XML parser for Java that uses a table-driven Finite State Machine (FSM) to achieve zero-allocation parsing on the hot path. It's designed for processing large volumes of structurally similar XML files with minimal overhead.</p>
+
+        <h3>Key Features</h3>
+        <ul>
+            <li><strong>Byte-level FSM</strong> — O(1) per-byte dispatch via transition table (TOC)</li>
+            <li><strong>Zero-copy callbacks</strong> — Events return offsets into original byte buffer</li>
+            <li><strong>Path-based targeting</strong> — Register only the XML paths you care about</li>
+            <li><strong>Multi-threaded</strong> — Lock-free ring buffers, configurable worker threads</li>
+            <li><strong>Predictive shortcuts</strong> — Learns structural fingerprints to skip non-target regions</li>
+            <li><strong>UTF-8 fast path</strong> — Multi-byte sequences skipped in bulk</li>
+        </ul>
+
+        <div class="note">
+            <strong>Requirement:</strong> Java 9+ (uses <code>VarHandle.fullFence()</code> for memory barriers)
+        </div>
+    </section>
+
+    <section id="quick-start">
+        <h2>2. Quick Start</h2>
+
+        <pre><code>import xmlFastParser.*;
+
+public class MyParser {
+    public static void main(String[] args) {
+        // 1. Create blueprint
+        xmlBluePrint bp = new xmlBluePrint();
+
+        // 2. Register paths you want to extract
+        bp.regist("/catalog/book", new MyHandler(), "book");
+        bp.regist("/catalog/book/author", new MyHandler(), "author");
+        bp.rootRegist(new MyHandler(), "root");
+        bp.errorRegist(new MyHandler(), "error");
+
+        // 3. Configure threads (optional, defaults to 1)
+        bp.setThreadCount(4);
+
+        // 4. Start engine
+        bp.run();
+
+        // 5. Submit XML jobs
+        byte[] xml = readFile("data.xml");
+        bp.pushJob(xml, xml.length, "data.xml".getBytes(), "data.xml".length());
+
+        // 6. Wait and shutdown
+        bp.shutdown(false);
+    }
+}</code></pre>
+    </section>
+
+    <section id="registration">
+        <h2>3. Path Registration</h2>
+
+        <h3>xmlBluePrint.regist(path, handler, token)</h3>
+        <p>Registers an XPath-like path for event callbacks. Only the <strong>last segment</strong> receives callbacks.</p>
+
+        <table>
+            <tr><th>Parameter</th><th>Description</th></tr>
+            <tr><td><code>path</code></td><td>Absolute path starting with <code>/</code> (e.g., <code>/root/item/name</code>)</td></tr>
+            <tr><td><code>handler</code></td><td><code>xmlBluePrintCall</code> implementation</td></tr>
+            <tr><td><code>token</code></td><td>User object passed back in callbacks (identifies which path triggered)</td></tr>
+        </table>
+
+        <h3>Examples</h3>
+        <pre><code>// Target: /catalog/book - fires on <book> open/close
+bp.regist("/catalog/book", handler, "book");
+
+// Target: /catalog/book/author - fires on <author> inside book
+bp.regist("/catalog/book/author", handler, "author");
+
+// Intermediate nodes (/catalog, /catalog/book) are routing only - no callbacks
+</code></pre>
+
+        <h3>Root Registration</h3>
+        <pre><code>bp.rootRegist(rootHandler, rootToken);
+</code></pre>
+        <p>Called when root element opens/closes. Use for document-level initialization.</p>
+
+        <h3>Error Registration</h3>
+        <pre><code>bp.errorRegist(errorHandler, errorToken);
+</code></pre>
+        <p>Called for malformed XML, tag mismatches, EOF errors.</p>
+
+        <div class="warning">
+            <strong>Namespace handling:</strong> Tag names are hashed stopping at <code>:</code> or <code>}</code>, so <code>ns:Book</code> and <code>Book</code> match the same registration.
+        </div>
+    </section>
+
+    <section id="callbacks">
+        <h2>4. Event Callbacks</h2>
+
+        <p>Implement the <code>xmlBluePrintCall</code> interface:</p>
+
+        <pre><code>public interface xmlBluePrintCall {
+    boolean call(Object idToken, xmlBluePrintHolder holder,
+                 int event, int nameBegin, int nameEnd,
+                 int valueBegin, int valueEnd);
+}</code></pre>
+
+        <h3>Event Types</h3>
+        <table>
+            <tr><th>Constant</th><th>Value</th><th>Description</th><th>nameBegin/End</th><th>valueBegin/End</th></tr>
+            <tr><td>EV_OPEN_TAG</td><td>1</td><td>Opening tag <code><tag></code></td><td>Tag name</td><td>Unused (0)</td></tr>
+            <tr><td>EV_CLOSE_TAG</td><td>2</td><td>Closing tag <code></tag></code></td><td>Unused (0)</td><td>Unused (0)</td></tr>
+            <tr><td>EV_ATTR</td><td>3</td><td>Attribute <code>name="value"</code></td><td>Attr name</td><td>Attr value</td></tr>
+            <tr><td>EV_INNER_TEXT</td><td>4</td><td>Text content between tags</td><td>Unused (0)</td><td>Text content</td></tr>
+            <tr><td>EV_EOF_IN_ROOT</td><td>1001</td><td>EOF before </root></td><td>-</td><td>-</td></tr>
+            <tr><td>EV_END_NE_BEGIN</td><td>1003</td><td>Closing tag ≠ opening tag</td><td>-</td><td>-</td></tr>
+        </table>
+
+        <h3>Accessing Data (Zero-Copy)</h3>
+        <pre><code>public boolean call(Object idToken, xmlBluePrintHolder holder,
+                     int event, int nb, int ne, int vb, int ve) {
+    byte[] buf = holder.getByteBuffer();  // Original XML bytes
+
+    String name = new String(buf, nb, ne - nb);
+    String value = (vb != ve) ? new String(buf, vb, ve - vb) : "";
+
+    // Process...
+    return true;  // Continue parsing
+    // return false; // Abort this document
+}</code></pre>
+
+        <h3>Charset</h3>
+        <pre><code>Charset cs = holder.charset;  // Detected from <?xml encoding="..."?>
+</code></pre>
+
+        <div class="tip">
+            <strong>Return false</strong> to abandon current document and skip to next job. Useful for filtering.
+        </div>
+    </section>
+
+    <section id="threading">
+        <h2>5. Thread Configuration</h2>
+
+        <pre><code>bp.setThreadCount(4);  // Must be called BEFORE run()
+bp.run();</code></pre>
+
+        <table>
+            <tr><th>Threads</th><th>Use Case</th></tr>
+            <tr><td>1</td><td>Low latency, single-stream, debugging</td></tr>
+            <tr><td>2-4</td><td>General purpose (CPU cores)</td></tr>
+            <tr><td>8+</td><td>High throughput, many small files</td></tr>
+        </table>
+
+        <div class="note">
+            If <code>setThreadCount()</code> is not called, defaults to <strong>1 thread</strong>.
+        </div>
+    </section>
+
+    <section id="job-submission">
+        <h2>6. Submitting XML Jobs</h2>
+
+        <h3>Push Job</h3>
+        <pre><code>boolean success = bp.pushJob(xmlBytes, length, nameBytes, nameLength);</code></pre>
+
+        <table>
+            <tr><th>Parameter</th><th>Description</th></tr>
+            <tr><td><code>xmlBytes</code></td><td>Raw XML byte array</td></tr>
+            <tr><td><code>length</code></td><td>Valid bytes in array</td></tr>
+            <tr><td><code>nameBytes</code></td><td>Identifier (filename, ID) as bytes</td></tr>
+            <tr><td><code>nameLength</code></td><td>Valid bytes in name</td></tr>
+        </table>
+
+        <h3>Backpressure Handling</h3>
+        <pre><code>while (bp.jobQueSpace() == 0) {
+    Thread.sleep(50);  // Wait for queue space
+}
+bp.pushJob(...);</code></pre>
+
+        <p>Returns <code>false</code> if queue is full (size: 16,384 jobs).</p>
+    </section>
+
+    <section id="lifecycle">
+        <h2>7. Lifecycle Control</h2>
+
+        <h3>Start</h3>
+        <pre><code>bp.run();  // Starts distributor + worker threads</code></pre>
+
+        <h3>Pause/Resume</h3>
+        <pre><code>bp.pause();   // Workers finish current job, then park
+bp.resume();  // Resume processing</code></pre>
+
+        <h3>Shutdown</h3>
+        <pre><code>bp.shutdown(false);  // Graceful: drain queues, join threads
+bp.shutdown(true);   // Force: abandon pending jobs immediately</code></pre>
+
+        <div class="warning">
+            Always call <code>shutdown()</code> to avoid thread leaks.
+        </div>
+    </section>
+
+    <section id="predictive">
+        <h2>8. Predictive Shortcuts (Advanced)</h2>
+
+        <p>XMLFastReader automatically learns structural fingerprints from processed XML files and uses them to accelerate parsing of similar files.</p>
+
+        <h3>How It Works</h3>
+        <ol>
+            <li>Each parsed document produces a <strong>log</strong>: sequence of <code>(byte-distance, target-tag-hash)</code></li>
+            <li>Logs stored in central ring buffer (10,000 entries)</li>
+            <li>On new document, after first target: finds best-matching historical log</li>
+            <li>Worker jumps directly to predicted target positions, skipping FSM for non-target regions</li>
+            <li>Verifies predictions by peeking at tag hashes; falls back on mismatch</li>
+        </ol>
+
+        <h3>Accessing Logs</h3>
+        <pre><code>// Per-holder (after job completes)
+long[] distances = holder.getLogDistances();
+long[] hashes = holder.getLogHashes();
+int size = holder.getLogSize();
+
+// Global (all collected logs)
+xmlBluePrint.LogEntry[] allLogs = xmlBluePrint.getCollectedLogs();
+</code></pre>
+
+        <div class="tip">
+            Works best for structurally similar XML (same tag order, variable spacing/attributes). No API changes needed — fully automatic.
+        </div>
+    </section>
+
+    <section id="best-practices">
+        <h2>9. Best Practices</h2>
+
+        <h3>Registration</h3>
+        <ul>
+            <li>Register <strong>only paths you need</strong> — smaller tree = faster matching</li>
+            <li>Use specific paths: <code>/a/b/c</code> not <code>/a//c</code> (no wildcards)</li>
+            <li>Reuse handlers with different tokens for same logic on different paths</li>
+        </ul>
+
+        <h3>Thread Count</h3>
+        <ul>
+            <li>Match to CPU cores for CPU-bound parsing</li>
+            <li>More threads help with I/O wait (large files from disk)</li>
+            <li>Avoid excessive threads (context switching overhead)</li>
+        </ul>
+
+        <h3>Memory</h3>
+        <ul>
+            <li>Reuse byte buffers when possible</li>
+            <li>Global queue: 16K jobs max; holder queue: 512 jobs each</li>
+            <li>Log store: 10K entries (fixed, ring buffer)</li>
+        </ul>
+
+        <h3>Error Handling</h3>
+        <ul>
+            <li>Always register error handler for production</li>
+            <li>Return <code>false</code> from callback to skip bad documents</li>
+            <li>Check <code>EV_END_NE_BEGIN</code> for malformed nesting</li>
+        </ul>
+    </section>
+
+    <section id="troubleshooting">
+        <h2>10. Troubleshooting</h2>
+
+        <table>
+            <tr><th>Symptom</th><th>Cause</th><th>Solution</th></tr>
+            <tr><td>No callbacks firing</td><td>Path doesn't match XML</td><td>Check path spelling, namespace stripping</td></tr>
+            <tr><td>EV_END_NE_BEGIN errors</td><td>Malformed XML nesting</td><td>Validate XML; register error handler</td></tr>
+            <tr><td>pushJob returns false</td><td>Global queue full</td><td>Add backpressure wait; increase threads</td></tr>
+            <tr><td>High CPU, low throughput</td><td>Too many threads</td><td>Reduce to CPU core count</td></tr>
+            <tr><td>Predictions not helping</td><td>Files structurally different</td><td>Normal — works for similar structures only</td></tr>
+            <tr><td>ClassNotFoundException</td><td>Package not on classpath</td><td>Compile all xmlFastParser/*.java together</td></tr>
+        </table>
+    </section>
+
+    <hr style="margin-top: 40px;">
+    <p style="color: #999; font-size: 0.9em;">XMLFastReader User Manual — High-performance parallel XML parser with predictive shortcuts</p>
+</body>
+</html>

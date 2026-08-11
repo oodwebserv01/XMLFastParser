@@ -144,6 +144,171 @@ Usage Instructions
    static volatile boolean shuttingdown = false; // Used to notify shutting down
    static volatile boolean forceShutdown = false; // Used to force shutdown
 
+   // ============================================================
+   // Log-based Predictive Shortcuts
+   // ============================================================
+
+   /**
+    * Log entry representing structural fingerprint of one XML file.
+    * Contains sequence of (distance, targetTagHash) pairs.
+    */
+   public static class LogEntry {
+      public final long[] distances;  // bytes from root/target to next target
+      public final long[] hashes;     // FNV-1a hash of target tag names
+      public final int size;          // valid entries
+
+      public LogEntry(long[] distances, long[] hashes, int size) {
+         this.distances = distances;
+         this.hashes = hashes;
+         this.size = size;
+      }
+
+      public LogEntry(long[] distances, long[] hashes) {
+         this(distances, hashes, Math.min(distances.length, hashes.length));
+      }
+   }
+
+   // Central log store (ring buffer)
+   private static final int MAX_LOGS = 10000;
+   private static final LogEntry[] logStore = new LogEntry[MAX_LOGS];
+   private static int logHead = 0;
+   private static int logCount = 0;
+
+   /**
+    * Called by holder when job completes to store its log.
+    */
+   public static void collectLog(LogEntry log) {
+      if (log == null || log.size == 0) return;
+      logStore[logHead] = log;
+      logHead = (logHead + 1) % MAX_LOGS;
+      if (logCount < MAX_LOGS) logCount++;
+   }
+
+   /**
+    * Find best matching log for an emerging fingerprint.
+    * Returns null if no logs stored yet.
+    */
+   public static LogEntry findBestMatch(LogEntry emerging) {
+      if (logCount == 0 || emerging == null || emerging.size == 0) return null;
+
+      LogEntry best = null;
+      double bestScore = -1.0;
+
+      for (int i = 0; i < logCount; i++) {
+         LogEntry stored = logStore[i];
+         if (stored == null) continue;
+         double score = score(stored, emerging);
+         if (score > bestScore) {
+            bestScore = score;
+            best = stored;
+         }
+      }
+      return best;
+   }
+
+   /**
+    * Score similarity between stored log and emerging log.
+    * Combines tag sequence match (70%) and distance ratio match (30%).
+    */
+   private static double score(LogEntry stored, LogEntry emerging) {
+      int maxLen = Math.max(stored.size, emerging.size);
+      if (maxLen == 0) return 0.0;
+
+      // Tag sequence: longest common prefix
+      int commonPrefix = 0;
+      int minLen = Math.min(stored.size, emerging.size);
+      for (int i = 0; i < minLen; i++) {
+         if (stored.hashes[i] == emerging.hashes[i]) commonPrefix++;
+         else break;
+      }
+      double tagScore = (double) commonPrefix / maxLen;
+
+      // Distance ratios for common prefix region
+      double distScore = 1.0;
+      if (commonPrefix > 1) {
+         double ratioSum = 0.0;
+         for (int i = 1; i < commonPrefix; i++) {
+            double storedRatio = (double) stored.distances[i] / stored.distances[i - 1];
+            double emergingRatio = (double) emerging.distances[i] / emerging.distances[i - 1];
+            double maxRatio = Math.max(storedRatio, emergingRatio);
+            if (maxRatio > 0) {
+               ratioSum += 1.0 - Math.abs(storedRatio - emergingRatio) / maxRatio;
+            }
+         }
+         distScore = ratioSum / (commonPrefix - 1);
+      }
+
+      return 0.7 * tagScore + 0.3 * distScore;
+   }
+
+   /**
+    * Get all collected logs (for inspection/debugging).
+    * Returns a snapshot of current log store.
+    */
+   public static LogEntry[] getCollectedLogs() {
+      LogEntry[] result = new LogEntry[logCount];
+      for (int i = 0; i < logCount; i++) {
+         int idx = (logHead - logCount + i + MAX_LOGS) % MAX_LOGS;
+         result[i] = logStore[idx];
+      }
+      return result;
+   }
+
+   // ============================================================
+   // Prediction Verification
+   // ============================================================
+
+   /**
+    * Verify that the predicted target matches the actual parsed target.
+    * If mismatch, invalidate prediction and fall back to normal FSM.
+    */
+   private static void verifyPrediction(xmlBluePrintHolder holder, int actualOffset, long actualHash) {
+      if (holder.predictedLog == null || holder.predictedIndex >= holder.predictedLog.size) {
+         return;
+      }
+
+      long predictedDist = holder.predictedLog.distances[holder.predictedIndex];
+      long predictedHash = holder.predictedLog.hashes[holder.predictedIndex];
+      int predictedOffset = (holder.predictedIndex == 0 && holder.rootOffset >= 0)
+         ? holder.rootOffset + (int)predictedDist
+         : holder.lastTargetOffset + (int)predictedDist;
+
+      if (actualHash != predictedHash || actualOffset != predictedOffset) {
+         holder.predictionValid = false;
+         holder.predictionActive = false;
+         // Fallback: continue normal FSM
+      } else {
+         holder.predictedIndex++;
+      }
+   }
+
+   /**
+    * Verify that the tag at current pointer matches the expected hash.
+    * Reads tag name starting at pointer and hashes it for comparison.
+    */
+   private static boolean verifyTagAtPointer(xmlBluePrintHolder holder, long expectedHash) {
+      byte[] buf = holder.jobStart[holder.cp];
+      int ptr = holder.pointer;
+      int len = holder.jobLength[holder.cp];
+
+      // Skip '<' if present
+      if (ptr < len && buf[ptr] == '<') ptr++;
+
+      // Read tag name
+      int nameStart = ptr;
+      while (ptr < len) {
+         byte b = buf[ptr];
+         if (b == '>' || b == '/' || b == ' ' || b == '\t' || b == '\n' || b == '\r') break;
+         ptr++;
+      }
+      int nameEnd = ptr;
+
+      if (nameEnd <= nameStart) return false;
+
+      long actualHash = hash(buf, nameStart, nameEnd);
+      return actualHash == expectedHash;
+   }
+
    public void run(){
       // Check if not already running to prevent multiple starts
       if (!running) {
@@ -162,7 +327,6 @@ Usage Instructions
 
          for (int i = 0; i < this.threadCount; i++) {
             this.holders[i] = new xmlBluePrintHolder();
-            this.holders[i].bluePrint = this;
             final int holderIndex = i;
             this.workerThreads[i] = new Thread(() -> {
                xmlBluePrintHolder holder = holders[holderIndex];
@@ -175,22 +339,68 @@ Usage Instructions
                   // Handle pause - park until resumed
                   while (!shuttingdown && paused) LockSupport.parkNanos(50_000_000L);
 
-                  // Process entire XML document ( nextJob via handler on <loot/> )
-                  //--- this is core of algorithm PLAN_A
-                  holder.pointer = 0;
+                  // Get next job from holder's queue (advances cp, resets parse state)
+                  if (!holder.nextJob()) {
+                     // No job available, wait
+                     while (!shuttingdown && (holder.cp == holder.pp)) LockSupport.parkNanos(5_000_000L);
+                     continue;
+                  }
+
                   holder.ready2down = false;
+                  // Request prediction after first target or at root
+                  // We'll trigger prediction when we have at least one target in log
+                  holder.predictionActive = false;
+                  holder.predictionValid = true;
+
+                  // Process entire XML document
                   while (holder.pointer < holder.jobLength[holder.cp]) {
+                     // PREDICTIVE FAST-PATH: jump to predicted target positions
+                     if (holder.predictionActive && holder.predictionValid
+                         && holder.predictedIndex < holder.predictedLog.size) {
+                        int nextPredictedOffset;
+                        if (holder.predictedIndex == 0 && holder.rootOffset >= 0) {
+                           nextPredictedOffset = holder.rootOffset + (int)holder.predictedLog.distances[0];
+                        } else if (holder.lastTargetOffset >= 0) {
+                           nextPredictedOffset = holder.lastTargetOffset + (int)holder.predictedLog.distances[holder.predictedIndex];
+                        } else {
+                           nextPredictedOffset = -1;
+                        }
+
+                        if (nextPredictedOffset > holder.pointer && nextPredictedOffset < holder.jobLength[holder.cp]) {
+                           // Jump directly to predicted target start
+                           holder.pointer = nextPredictedOffset;
+                           // Peek: verify tag at predicted position
+                           if (verifyTagAtPointer(holder, holder.predictedLog.hashes[holder.predictedIndex])) {
+                              holder.predictedIndex++;
+                              continue; // Skip FSM for jumped region
+                           } else {
+                              holder.predictionValid = false;
+                              holder.predictionActive = false;
+                           }
+                        }
+                     }
+
+                     // Normal FSM
                      TOC[holder.xmlState][holder.jobStart[holder.cp][holder.pointer]]
                         .call(holder);
                   }
 
-                  // This area access when EOF before </root> and when Shutting down 
-                  if (!shuttingdown && (holder.cp != holder.pp)) {
-                     // EOF reached without </root> -> error
-                     this.errorHandler.call(this.errorToken, holder, EV_EOF_IN_ROOT, 0, 0, 0, 0);
-
-                     while (!shuttingdown && !holder.nextJob()) LockSupport.parkNanos(5_000_000L);
+                  // EOF reached without </root> -> error (only if more jobs in main queue)
+                  if (!shuttingdown && (cp != pp)) {
+                     if (errorHandler != null) {
+                        errorHandler.call(errorToken, holder, EV_EOF_IN_ROOT, 0, 0, 0, 0);
+                     }
                   }
+
+                  // Collect and push target distance log to blueprint
+                  if (holder.logSize > 0) {
+                     long[] finalDist = new long[holder.logSize];
+                     long[] finalHash = new long[holder.logSize];
+                     System.arraycopy(holder.logDistances, 0, finalDist, 0, holder.logSize);
+                     System.arraycopy(holder.logHashes, 0, finalHash, 0, holder.logSize);
+                     xmlBluePrint.collectLog(new xmlBluePrint.LogEntry(finalDist, finalHash, holder.logSize));
+                  }
+
                   holder.ready2down = shuttingdown;
                }
 
@@ -298,7 +508,7 @@ Usage Instructions
    private volatile int pp = 0; // ชี้ที่ว่างต่อไป รองานเข้า
 
    // VarHandle for StoreLoad barrier (array element visibility) - JDK 9+
-   private static final VarHandle FULL_FENCE = MethodHandles.fullFenceVarHandle();
+// Use static VarHandle.fullFence() method directly
 
    // Check is there space in Queue
    int jobQueSpace() {
@@ -313,7 +523,7 @@ Usage Instructions
          jobStart[_pp] = start;
          jobLength[_pp] = length;
          // StoreLoad barrier: ensure element writes visible before pp update
-         FULL_FENCE.fullFence();
+         VarHandle.fullFence();
          pp = _pp;
          
          if (distributorThread != null) {
@@ -384,23 +594,22 @@ Usage Instructions
    // ============================================================
    // State Constants
    // ============================================================
-   public static final int xmlState_MAX = 53;
+   public static final int xmlState_MAX = 54;
 
    // OUTSIDE ROOT (0-7)
    public static final int S_HEADER                = 0;
    public static final int S_HEAD_LT               = 1;
    public static final int S_HEADER_BANG           = 2;
-   public static final int S_HEADER_PI             = 3;   
-   public static final int S_HEADER_CHAR           = 4;   
+   public static final int S_HEADER_PI             = 3;
    public static final int S_HEADER_DASH           = 5;
    public static final int S_HEADER_2DASH          = 6;
-   public static final int S_HEADER_MINUS_DASH     = 7;  
-   public static final int S_HEADER_MINUS_2DASH    = 8;  
+   public static final int S_HEADER_MINUS_DASH     = 7;
+   public static final int S_HEADER_MINUS_2DASH    = 8;
    public static final int S_HEADER_X              = 9;
    public static final int S_HEADER_XM             = 10;
-   public static final int S_HEADER_XML             = 11;   
-   public static final int S_HEADER_ATTR             = 12;   
-   public static final int S_HEADER_E             = 13;  
+   public static final int S_HEADER_XML             = 11;
+   public static final int S_HEADER_ATTR             = 12;
+   public static final int S_HEADER_E             = 13;
    public static final int S_HEADER_C             = 14;  
    public static final int S_EN             = 15;  
    public static final int S_ENC             = 16;  
@@ -443,9 +652,6 @@ Usage Instructions
    public static final int S_UNREGIST_BRANCH     = 53;  
 
    // CHILD TAG (18-20)
-   public static final int CHILD_OPEN         = 18;
-   public static final int CHILD_INNER        = 19;
-   public static final int CHILD_CLOSE        = 20;
 
    // Event types (สำหรับ handler interface)
    public static final int EV_OPEN_TAG    = 1;
@@ -455,7 +661,6 @@ Usage Instructions
   
    public static final int EV_UNKNOWN_ERROR = 0;
    public static final int EV_EOF_IN_ROOT = 1001;
-   public static final int EV_LT_IN_TAG = 1002;
    public static final int EV_END_NE_BEGIN = 1003;
 
    /*--- TOC Handlling--- */
@@ -894,8 +1099,19 @@ Usage Instructions
       public void call(xmlBluePrintHolder holder) {
          holder.tagNameEnd = holder.pointer++;
          holder.hRootName = hash(holder.jobStart[holder.cp],holder.tagName,holder.tagNameEnd);
+         root.tagHash = holder.hRootName; // Fix: set root tagHash for close tag matching
          holder.currentNode = root;
-         if (! rootHandler.call(rootToken,holder,EV_OPEN_TAG,holder.tagName,holder.tagNameEnd,0,0)) {
+
+         // Initialize target distance log
+         holder.rootOffset = holder.tagName; // byte offset of '<root'
+         holder.lastTargetOffset = -1;
+         holder.logSize = 0;
+         holder.predictedLog = null;
+         holder.predictedIndex = 0;
+         holder.predictionActive = false;
+         holder.predictionValid = true;
+
+         if (rootHandler != null && ! rootHandler.call(rootToken,holder,EV_OPEN_TAG,holder.tagName,holder.tagNameEnd,0,0)) {
             HD_NEXT_XML(holder);
             return ;
          }
@@ -1171,15 +1387,25 @@ Usage Instructions
          // Compute hash for the tag name
          long hTagName = hash(holder.jobStart[holder.cp], holder.tagName, holder.tagNameEnd);
          
-         // Step 3: If we are currently skipping an unregistered branch (skipDept > 0)
-         if (holder.skipDept > 0) {
-            // If this tag matches the one we are skipping, increment the skip depth
-            if (hTagName == holder.skipName) {
-               holder.skipDept++;
+
+        // Step 3: If we are currently skipping an unregistered branch (skipDepth > 0)
+        if (holder.skipDepth > 0) {
+            // If this tag matches the skipName, increment depth (unless self-closing)
+            if (hTagName == holder.skipName && !isSelfClosed) {
+                holder.skipDepth++;
             }
             holder.xmlState = S_UNREGIST_BRANCH;
             return;
-         }
+        }
+
+        // Step 3b: Not in skip mode, but this is an unregistered tag
+        // Record skipName and enter skip mode
+        if (!holder.currentNode.hasChild(hTagName)) {
+            holder.skipName = hTagName;
+            holder.skipDepth = 1;
+            holder.xmlState = S_UNREGIST_BRANCH;
+            return;
+        }
 
          // Step 4: Check if the current node has a child with this tag name (registered path)
          if (holder.currentNode.hasChild(hTagName)) {
@@ -1189,13 +1415,55 @@ Usage Instructions
             // Step 5: If this is a target node, send the OPEN_TAG callback
             if (holder.currentNode.isTarget) {
                if (!holder.currentNode.handler.call(
-                  holder.currentNode.idToken, holder, 
-                  EV_OPEN_TAG, 
-                  holder.tagName, holder.tagNameEnd, 
+                  holder.currentNode.idToken, holder,
+                  EV_OPEN_TAG,
+                  holder.tagName, holder.tagNameEnd,
                   0, 0)) {
                   // If the handler returns false, skip to next XML
                   HD_NEXT_XML(holder);
                   return;
+               }
+
+               // Record target distance log
+               int targetStart = holder.tagName; // byte offset of '<target'
+               if (holder.logSize < holder.logDistances.length) {
+                  long dist;
+                  if (holder.lastTargetOffset >= 0) {
+                     dist = targetStart - holder.lastTargetOffset;
+                  } else if (holder.rootOffset >= 0) {
+                     dist = targetStart - holder.rootOffset;
+                  } else {
+                     dist = 0;
+                  }
+                  holder.logDistances[holder.logSize] = dist;
+                  holder.logHashes[holder.logSize] = hTagName;
+                  holder.logSize++;
+                  holder.lastTargetOffset = targetStart;
+               }
+
+               // Trigger prediction after first target if not already active
+               if (!holder.predictionActive && holder.logSize == 1) {
+                  // Build partial log with what we have so far
+                  long[] partialDist = new long[holder.logSize];
+                  long[] partialHash = new long[holder.logSize];
+                  System.arraycopy(holder.logDistances, 0, partialDist, 0, holder.logSize);
+                  System.arraycopy(holder.logHashes, 0, partialHash, 0, holder.logSize);
+                  xmlBluePrint.LogEntry partialLog = new xmlBluePrint.LogEntry(partialDist, partialHash, holder.logSize);
+
+                  // Find best matching log from blueprint
+                  xmlBluePrint.LogEntry bestMatch = xmlBluePrint.findBestMatch(partialLog);
+                  if (bestMatch != null && bestMatch.size > holder.logSize) {
+                     holder.predictedLog = bestMatch;
+                     holder.predictedIndex = holder.logSize; // start predicting from next target
+                     holder.predictionActive = true;
+                     holder.predictionValid = true;
+                  }
+               }
+
+               // If prediction active, verify prediction
+               if (holder.predictionActive && holder.predictionValid
+                   && holder.predictedIndex < holder.predictedLog.size) {
+                  verifyPrediction(holder, targetStart, hTagName);
                }
             }
             
@@ -1246,9 +1514,9 @@ Usage Instructions
             }
          } else {
             // Step 7: Case: unregistered node (not in the registered path)
-            // Store hash in skipName and increment skipDepth
+            // Record skipName and enter skip mode
             holder.skipName = hTagName;
-            holder.skipDept++;
+            holder.skipDepth = 1;
             holder.xmlState = S_UNREGIST_BRANCH;
          }
          return;
@@ -1322,29 +1590,32 @@ Usage Instructions
             return;
          }
 
-         // Step 3: If we are currently skipping an unregistered branch (skipDept > 0)
-         if (holder.skipDept > 0) {
-            // If this tag matches the one we are skipping, decrement the skip depth
+
+        // Step 3: If we are currently skipping an unregistered branch (skipDepth > 0)
+        if (holder.skipDepth > 0) {
+            // If this tag matches the skipName, decrement depth
             if (holder.hTagName == holder.skipName) {
-               holder.skipDept--;
+                holder.skipDepth--;
             }
 
             // After processing, check if we have exited the skipped branch
-            if (holder.skipDept == 0) {
-               // We are now back to the registered branch
-               // Set state based on whether we are in a child of a target or not
-               if (holder.currentNode.isChildOfTarget) {
-                  holder.xmlState = S_TARGET_INNER;
-                  holder.value = holder.pointer;
-               } else {
-                  holder.xmlState = S_INNER;
-               }
+            if (holder.skipDepth == 0) {
+                // Clear skipName when exiting
+                holder.skipName = 0;
+                // We are now back to the registered branch
+                // Set state based on whether current node is a target
+                if (holder.currentNode.isTarget) {
+                    holder.xmlState = S_TARGET_INNER;
+                    holder.value = holder.pointer;
+                } else {
+                    holder.xmlState = S_INNER;
+                }
             } else {
-               // Still inside a skipped branch
-               holder.xmlState = S_UNREGIST_BRANCH;
+                // Still inside a skipped branch
+                holder.xmlState = S_UNREGIST_BRANCH;
             }
             return;
-         }
+        }
 
          // Step 4: We are in a registered branch (skipDept == 0)
          // Check if the end tag matches the start tag (by comparing hashes)
@@ -1414,7 +1685,7 @@ Usage Instructions
       TOC[S_HEAD_LT]['?'] = HD_HEADER_PI;    
       TOC[S_HEAD_LT]['_'] = HD_HEAD_CHAR;     
       for (int j = 'z'; j >= 'a'; j--) TOC[S_HEAD_LT][j] = HD_HEAD_CHAR;
-      for (int j = 'Z'; j >= 'Z'; j--) TOC[S_HEAD_LT][j] = HD_HEAD_CHAR;
+      for (int j = 'Z'; j >= 'A'; j--) TOC[S_HEAD_LT][j] = HD_HEAD_CHAR;
 
       /*
          S_HEADER_BANG : <! : expected (- : HD_HEADER_DASH)
@@ -1734,34 +2005,34 @@ Usage Instructions
       TOC[S_VAL_ATTR]['\n'] = HD_END_VALUE; // send but empty
       TOC[S_VAL_ATTR]['\r'] = HD_END_VALUE; // send but empty
 
-      /* 
+      /*
          S_VAL_VALUE : attr=value : expected ( " : HD_END_VALUE)
             ( space : HD_END_VALUE)
             ( > : HD_END_VALUE)
          anything else : HD_SAMESTATE
        */
-      TOC[S_VAL_ATTR]['"'] = HD_END_VALUE; // forget " at openning
-      TOC[S_VAL_ATTR][' '] = HD_END_VALUE; 
-      TOC[S_VAL_ATTR]['\t'] = HD_END_VALUE; 
-      TOC[S_VAL_ATTR]['\n'] = HD_END_VALUE; 
-      TOC[S_VAL_ATTR]['\r'] = HD_END_VALUE; 
-      TOC[S_VAL_ATTR]['>'] = HD_END_VALUE; 
+      TOC[S_VAL_VALUE]['"'] = HD_END_VALUE; // forget " at openning
+      TOC[S_VAL_VALUE][' '] = HD_END_VALUE;
+      TOC[S_VAL_VALUE]['\t'] = HD_END_VALUE;
+      TOC[S_VAL_VALUE]['\n'] = HD_END_VALUE;
+      TOC[S_VAL_VALUE]['\r'] = HD_END_VALUE;
+      TOC[S_VAL_VALUE]['>'] = HD_END_VALUE;
 
-      /* 
+      /*
          S_QUOTE_VALUE : attr='value : expected ( ' : HD_END_VALUE)
             ( > : HD_END_VALUE)
          anything else : HD_SAMESTATE
        */
-      TOC[S_QUOTE_VALUE]['\''] = HD_END_VALUE; 
-      TOC[S_QUOTE_VALUE]['>'] = HD_END_VALUE; 
+      TOC[S_QUOTE_VALUE]['\''] = HD_END_VALUE;
+      TOC[S_QUOTE_VALUE]['>'] = HD_END_VALUE;
 
-      /* 
-         S_DQUOTE_VALUE : attr='value : expected ( " : HD_END_VALUE)
+      /*
+         S_DQUOTE_VALUE : attr="value : expected ( " : HD_END_VALUE)
             ( > : HD_END_VALUE)
          anything else : HD_SAMESTATE
        */
-      TOC[S_QUOTE_VALUE]['"'] = HD_END_VALUE; 
-      TOC[S_QUOTE_VALUE]['>'] = HD_END_VALUE; 
+      TOC[S_DQUOTE_VALUE]['"'] = HD_END_VALUE;
+      TOC[S_DQUOTE_VALUE]['>'] = HD_END_VALUE; 
 
        /* 
          S_TARGET_INNER : <target> : expected ( < : HD_LT )
@@ -1782,7 +2053,7 @@ Usage Instructions
       TOC[S_LT]['/'] = HD_SLASH;          
       TOC[S_LT]['_'] = HD_CHAR;     
       for (int j = 'z'; j >= 'a'; j--) TOC[S_LT][j] = HD_CHAR;
-      for (int j = 'Z'; j >= 'Z'; j--) TOC[S_LT][j] = HD_CHAR;
+      for (int j = 'Z'; j >= 'A'; j--) TOC[S_LT][j] = HD_CHAR;
 
       /*
          S_BANG : <! : expected (- : HD_DASH)

@@ -26,9 +26,9 @@ class xmlBluePrintHolder {
     }
 
     // VarHandle for StoreLoad barrier (array element visibility) - JDK 9+
-    private static final VarHandle FULL_FENCE = MethodHandles.fullFenceVarHandle();
+// Use static VarHandle.fullFence() method directly
 
-    // Add new job to job queue
+// Add new job to job queue
     boolean pushJob(byte[] start, int length, byte[] name, int nameLength) {
         if (0 != ((cp - pp - 1) & jobQueMask)) {
             int _pp = (pp + 1) & jobQueMask;
@@ -37,7 +37,7 @@ class xmlBluePrintHolder {
             jobStart[_pp] = start;
             jobLength[_pp] = length;
             // StoreLoad barrier: ensure element writes visible before pp update
-            FULL_FENCE.fullFence();
+            VarHandle.fullFence();
             pp = _pp;
             LockSupport.unpark(myThread);
             return true;
@@ -55,17 +55,25 @@ class xmlBluePrintHolder {
     boolean nextJob() {
         if (cp != pp) {
             charset = java.nio.charset.StandardCharsets.UTF_8;
-            fHeaderCharset = false;            
-            encodReading = false;
+            fHeaderCharset = false;
             pointer = 0;
             currentNode = null;
             xmlState = xmlBluePrint.S_HEADER;
-            skipName = 0; skipDept = 0;
+            skipDepth = 0;
+            skipName = 0;
             tagName = 0; tagNameEnd = 0;
             attrName = 0; attrEnd = 0;
-            value = 0; valEnd = 0; 
+            value = 0; valEnd = 0;
             hRootName = 0; hTagName = 0;
-            quote = false; dquote = false;
+
+            // Reset log state
+            logSize = 0;
+            rootOffset = -1;
+            lastTargetOffset = -1;
+            predictedLog = null;
+            predictedIndex = 0;
+            predictionActive = false;
+            predictionValid = true;
 
             cp = (cp + 1) & jobQueMask;
             return true;
@@ -75,24 +83,58 @@ class xmlBluePrintHolder {
         }
     }
 
+    /**
+     * Get the target distance log for the current job.
+     * Returns arrays of (distance, targetTagHash) pairs.
+     */
+    public long[] getLogDistances() {
+        long[] result = new long[logSize];
+        System.arraycopy(logDistances, 0, result, 0, logSize);
+        return result;
+    }
+
+    public long[] getLogHashes() {
+        long[] result = new long[logSize];
+        System.arraycopy(logHashes, 0, result, 0, logSize);
+        return result;
+    }
+
+    public int getLogSize() {
+        return logSize;
+    }
+
     /* -- XML STATE RELATE -- */
-    int pointer = 0; // index ของ byte ที่กำลังอ่าน 
+    int pointer = 0; // index ของ byte ที่กำลังอ่าน
     int xmlState = xmlBluePrint.S_HEADER; // state of parser
 
-    long skipName = 0;  // unregist blanch currently on
-    int skipDept = 0; // dept of unrefist blanch with same name
+    // Simple skip for unregistered branches: track first unregistered tag name + depth
+    long skipName = 0;  // hash of first unregistered tag
+    int skipDepth = 0;  // nesting depth inside that unregistered branch
+
     int tagName = 0, tagNameEnd = 0; // tagName of current tag
     int attrName = 0, attrEnd = 0; // last attribute name  
     int value = 0, valEnd = 0; // last value or innerText
 
-    long hRootName = 0; // need for identify end of xml 
+    long hRootName = 0; // need for identify end of xml
     long hTagName = 0; // current tag name in hash
-    boolean quote = false; // if attribute value start with qoute 
-    boolean dquote = false; // if attribute value start with double qoute 
-    boolean encodReading = false; // 
-    byte[] encodeBuff = new byte[15]; // " UTF-8 "
+    byte[] encodeBuff = new byte[64]; // charset name buffer (was 15)
     boolean fHeaderCharset = false;
     public Charset charset = java.nio.charset.StandardCharsets.UTF_8; // เก็บ charset ของ xmlFile;
+    // ============================================================
+    // Target Distance Logging & Predictive Shortcuts
+    // ============================================================
+    private static final int MAX_LOG_TARGETS = 256;
+    long[] logDistances = new long[MAX_LOG_TARGETS];
+    long[] logHashes = new long[MAX_LOG_TARGETS];
+    int logSize = 0;
+    int rootOffset = -1;       // byte offset of '<root'
+    int lastTargetOffset = -1; // byte offset of last target's '<'
+
+    // Prediction state
+    xmlBluePrint.LogEntry predictedLog = null;
+    int predictedIndex = 0;
+    boolean predictionActive = false;
+    boolean predictionValid = true;
 
 
     /* -- CONSTRUCTION RELATE -- */    
@@ -110,6 +152,4 @@ class xmlBluePrintHolder {
     volatile int[] jobLength = new int[jobQueSize]; // ขนาดของงาน
     volatile int cp = 0;
     volatile int pp = 0;
-
-    xmlBluePrint bluePrint = null;
 }

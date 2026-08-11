@@ -1,2 +1,4 @@
 test/databak/
 test/datas/
+*.class
+xmlFastParser/xmlFastParser/*.class
