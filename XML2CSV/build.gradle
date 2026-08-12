@@ -1,0 +1,79 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'xml2csv'
+version = '1.0.0'
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(17)
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+repositories {
+    mavenCentral()
+    mavenLocal()
+    flatDir {
+        dirs '../xmlFastParser/xmlFastParser/build/libs'
+    }
+}
+
+dependencies {
+    // Local xmlFastParser module
+    implementation files('../xmlFastParser/xmlFastParser/build/libs/xmlFastParser.jar')
+
+    // Apache Commons IO - file operations
+    implementation 'commons-io:commons-io:2.16.1'
+
+    // Apache Commons Compress - ZIP handling
+    implementation 'org.apache.commons:commons-compress:1.27.1'
+
+    // OpenCSV - CSV writing
+    implementation 'com.opencsv:opencsv:5.9'
+
+    // Logging (optional but useful)
+    implementation 'org.slf4j:slf4j-api:2.0.13'
+    implementation 'org.slf4j:slf4j-simple:2.0.13'
+
+    // Testing
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testImplementation 'org.mockito:mockito-core:5.11.0'
+}
+
+application {
+    mainClass = 'xml2csv.XML2CSV'
+}
+
+tasks.named('jar') {
+    manifest {
+        attributes(
+            'Main-Class': 'xml2csv.XML2CSV',
+            'Class-Path': configurations.runtimeClasspath.files.collect { "lib/$it.name" }.join(' ')
+        )
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+// Copy dependencies to lib folder for distribution
+task copyDeps(type: Copy) {
+    from configurations.runtimeClasspath
+    into 'build/libs/lib'
+}
+
+tasks.named('build').dependsOn(copyDeps)
+
+// Encoding
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}
+
+tasks.named('javadoc') {
+    options.encoding = 'UTF-8'
+    options.charSet = 'UTF-8'
+}

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root>
+  <Transaction>
+    <Invoid SN="INV001">
+      <Saler>
+        <PersonID>SALER001</PersonID>
+      </Saler>
+      <Buyer>
+        <PersonID>BUYER001</PersonID>
+      </Buyer>
+      <Items Count="2">
+        <Item ID="ITEM001">
+          <Name>Product A</Name>
+          <Quantity>10</Quantity>
+          <UnitPrice>100.00</UnitPrice>
+          <TotalPrice>1000.00</TotalPrice>
+        </Item>
+        <Item ID="ITEM002">
+          <Name>Product B</Name>
+          <Quantity>5</Quantity>
+          <UnitPrice>200.00</UnitPrice>
+          <TotalPrice>1000.00</TotalPrice>
+        </Item>
+      </Items>
+      <Summary>Total: 2000.00</Summary>
+    </Invoid>
+    <Invoid SN="INV002">
+      <Saler>
+        <PersonID>SALER002</PersonID>
+      </Saler>
+      <Buyer>
+        <PersonID>BUYER002</PersonID>
+      </Buyer>
+      <Items Count="1">
+        <Item ID="ITEM003">
+          <Name>Product C</Name>
+          <Quantity>3</Quantity>
+          <UnitPrice>300.00</UnitPrice>
+          <TotalPrice>900.00</TotalPrice>
+        </Item>
+      </Items>
+      <Summary>Total: 900.00</Summary>
+    </Invoid>
+  </Transaction>
+</root>

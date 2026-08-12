@@ -1,0 +1,34 @@
+plugins {
+    id 'java'
+}
+
+group = 'xmlFastParser'
+version = '1.0.0'
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(17)
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+repositories {
+    mavenCentral()
+}
+
+tasks.named('jar') {
+    manifest {
+        attributes(
+            'Main-Class': 'xmlFastParser.xmlBluePrint'
+        )
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}
+
+tasks.named('javadoc') {
+    options.encoding = 'UTF-8'
+    options.charSet = 'UTF-8'
+}

@@ -6,7 +6,7 @@ import java.nio.charset.Charset;
 import java.util.concurrent.locks.LockSupport;
 
 
-class xmlBluePrintHolder {
+public class xmlBluePrintHolder {
 
     public byte[] getByteBuffer(){
         if (xmlState <= xmlBluePrint.S_ROOT_OPEN) return null;
@@ -74,6 +74,7 @@ class xmlBluePrintHolder {
             predictedIndex = 0;
             predictionActive = false;
             predictionValid = true;
+            rootClosed = false;  // Reset root closed flag
 
             cp = (cp + 1) & jobQueMask;
             return true;
@@ -139,9 +140,14 @@ class xmlBluePrintHolder {
 
     /* -- CONSTRUCTION RELATE -- */    
     xmlBluePrintNode currentNode = null; // current brach
-    Thread myThread = null;
+    Thread myThread = null; int threadNo = -1;
     boolean ready2down = true;
+    boolean rootClosed = false;  // Track if root close tag was processed
     
+    public int getThreadNO() {
+        return this.threadNo;
+    }
+
     private final int jobQueSize = 0x200; // ขนาดของคิวงานที่สามารถเก็บได้ 
     private final int jobQueMask = jobQueSize-1;
 

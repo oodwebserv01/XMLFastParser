@@ -56,6 +56,19 @@ Usage Instructions
    * When depth returns to 0: exits skip mode, resumes registered branch
    * Does NOT validate XML syntax in unregistered branches
    * Malformed XML in unregistered branches is silently ignored
+
+ - holder.getThreadNO() - Get Worker Thread Number (v2.1+)
+   * Returns the 0-based thread index of the worker processing the current job
+   * Usage: int threadNo = holder.getThreadNO();
+   * Useful for: per-thread output routing, thread-local storage, debugging
+
+ - xmlBluePrint.hash(...) - FNV-1a Hash with SplitMix64 Finalizer (v2.1+)
+   * Static method to compute 64-bit hash of tag/attribute names
+   * Overloads: hash(byte[] buff, int length) and hash(byte[] buff, int begin, int end)
+   * Algorithm: FNV-1a (offset basis 0xCBF29CE484222325L, prime 0x100000001B3L) + SplitMix64 finalizer
+   * Stops early on ':' or '}' characters (namespace handling)
+   * Used internally for path registration and tag matching during parsing
+   * Public API available for custom hash-based lookups
  */
    public static void regist(String path, xmlBluePrintCall handler, Object token) {
        // Check if path is null, empty, or doesn't start with '/'
@@ -107,11 +120,11 @@ Usage Instructions
       return (' '==x || '\r'==x || '\n'==x || '\t'==x);
    };
 
-   static final long hash(byte[] buff, int length) { // FNV_1a
+   public static final long hash(byte[] buff, int length) { // FNV_1a
       return hash(buff, 0, length);
    };
    
-   static final long hash(byte[] buff, int begin, int end) { // FNV_1a
+   public static final long hash(byte[] buff, int begin, int end) { // FNV_1a
       long h = 0xCBF29CE484222325L; // FNV offset basis
       for (int i = begin; i < end; i++) {
          byte v = buff[i];
@@ -344,6 +357,7 @@ Usage Instructions
             this.workerThreads[i] = new Thread(() -> {
                xmlBluePrintHolder holder = holders[holderIndex];
                holder.myThread = Thread.currentThread();
+               holder.threadNo = holderIndex;
 
                // wait until job come
                while (!shuttingdown && (holder.cp == holder.pp)) LockSupport.parkNanos(5_000_000L);
@@ -398,8 +412,8 @@ Usage Instructions
                         .call(holder);
                   }
 
-                  // EOF reached without </root> -> error (only if more jobs in main queue)
-                  if (!shuttingdown && (cp != pp)) {
+                  // EOF reached without </root> -> error if root was not properly closed
+                  if (!shuttingdown && !holder.rootClosed) {
                      if (errorHandler != null) {
                         errorHandler.call(errorToken, holder, EV_EOF_IN_ROOT, 0, 0, 0, 0);
                      }
@@ -510,7 +524,7 @@ Usage Instructions
       running = false;
    };
 
-   private final int jobQueSize = 0x4000;
+   public final int jobQueSize = 0x4000;
    private final int jobQueMask = jobQueSize-1;
        /* Ring Type Job Queue size 2^14 */
    private volatile byte[][] jobName = new byte[jobQueSize][]; // byte[] ชื่อไฟล์
@@ -524,11 +538,11 @@ Usage Instructions
 // Use static VarHandle.fullFence() method directly
 
    // Check is there space in Queue
-   int jobQueSpace() {
+   public int jobQueSpace() {
       return (cp - pp - 1) & jobQueMask;
-   };   
+   };
 
-   boolean pushJob(byte[] start, int length, byte[] name, int nameLength) {
+   public boolean pushJob(byte[] start, int length, byte[] name, int nameLength) {
       if (0 != ((cp - pp - 1) & jobQueMask)) {
          int _pp = (pp + 1) & jobQueMask;
          jobName[_pp] = name;
@@ -548,7 +562,7 @@ Usage Instructions
       }
    };
 
-   boolean nextJob() {
+   public boolean nextJob() {
       int next = (cp + 1) & jobQueMask;
       if (next != pp) {
          cp = next;
@@ -685,6 +699,7 @@ Usage Instructions
    private static final CELL HD_CLOSINGROOT = new CELL() {
       @Override
       public void call(xmlBluePrintHolder holder) {
+         holder.rootClosed = true;  // Mark root as properly closed
          root.handler.call(rootToken,holder,EV_CLOSE_TAG,0,0,0,0);
          HD_NEXT_XML(holder);
       }

@@ -37,6 +37,86 @@
 
 ---
 
+## New API Additions (v2.1+)
+
+### 1. `holder.getThreadNO()` - Get Worker Thread Number
+
+**Purpose:** Retrieve the thread index (0-based) of the worker thread currently processing the XML job.
+
+**Location:** `xmlBluePrintHolder.getThreadNO()`
+
+**Returns:** `int` - Thread number (0 to threadCount-1)
+
+**Usage:**
+```java
+// Inside your xmlBluePrintCall handler implementation
+public void call(Object idToken, xmlBluePrintHolder holder, int event, 
+                 int nameStart, int nameEnd, int valueStart, int valueEnd) {
+    int threadNo = holder.getThreadNO();
+    
+    // Use threadNo for thread-specific logic:
+    // - Thread-local storage indexing
+    // - Per-thread CSV file writers (as in XML2CSV)
+    // - Debugging/tracing which thread processed which XML
+    System.out.println("Processing on thread: " + threadNo);
+}
+```
+
+**Key Points:**
+- Assigned when worker thread starts in `xmlBluePrint.run()` (line 347)
+- Constant for the lifetime of the holder instance
+- Useful for multi-threaded output routing (e.g., separate CSV per thread)
+
+---
+
+### 2. `xmlBluePrint.hash(...)` - FNV-1a Hash with SplitMix64 Finalizer
+
+**Purpose:** Compute a 64-bit hash of tag/attribute names for fast path matching in the parser.
+
+**Location:** `xmlBluePrint.hash(byte[] buff, int begin, int end)` (public static)
+
+**Overloads:**
+```java
+// Full buffer hash
+public static final long hash(byte[] buff, int length)
+
+// Sub-range hash (most commonly used internally)
+public static final long hash(byte[] buff, int begin, int end)
+```
+
+**Algorithm:** FNV-1a with SplitMix64 finalizer
+- Offset basis: `0xCBF29CE484222325L`
+- FNV prime: `0x100000001B3L`
+- Finalizer: SplitMix64 (3 rounds of xor-shift-multiply)
+
+**Behavior:**
+- Hashes bytes from `begin` (inclusive) to `end` (exclusive)
+- **Stops early** on `:` or `}` characters (for namespace handling)
+- Returns 64-bit long hash value
+
+**Usage:**
+```java
+// Hash a tag name from byte array
+byte[] tagName = "Transaction".getBytes();
+long hash = xmlBluePrint.hash(tagName, 0, tagName.length);
+
+// Hash a path segment during registration (internal use)
+String segment = "Invoid";
+byte[] segBytes = segment.getBytes();
+long tagHash = xmlBluePrint.hash(segBytes, segBytes.length);
+```
+
+**Internal Usage:**
+- Path registration (`regist()`) - line 84: `hash(segBytes, segBytes.length)`
+- Tag name hashing during parsing - line 1402: `hash(holder.jobStart[holder.cp], holder.tagName, holder.tagNameEnd)`
+- Root tag hashing - line 1115: `hash(holder.jobStart[holder.cp],holder.tagName,holder.tagNameEnd)`
+- Closing tag verification - line 1597: `hash(holder.jobStart[holder.cp], holder.tagName, holder.tagNameEnd)`
+- Charset detection - line 978: `Charset.forName(finalValue)` (after extracting value)
+
+**Important:** The early-stop on `:` or `}` means namespace prefixes (e.g., `ns:tag`) will hash only the prefix portion. Ensure registered paths match this behavior.
+
+---
+
 ## Important Clarifications
 
 ### 1. Path Registration Starts from First Child of Root (Not Root Itself)
