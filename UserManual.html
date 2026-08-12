@@ -37,12 +37,13 @@
             <li><a href="#quick-start">2. Quick Start</a></li>
             <li><a href="#registration">3. Path Registration</a></li>
             <li><a href="#callbacks">4. Event Callbacks</a></li>
-            <li><a href="#threading">5. Thread Configuration</a></li>
-            <li><a href="#job-submission">6. Submitting XML Jobs</a></li>
-            <li><a href="#lifecycle">7. Lifecycle Control</a></li>
-            <li><a href="#predictive">8. Predictive Shortcuts (Advanced)</a></li>
-            <li><a href="#best-practices">9. Best Practices</a></li>
-            <li><a href="#troubleshooting">10. Troubleshooting</a></li>
+            <li><a href="#holder-api">5. Holder API & Waiting for Callbacks</a></li>
+            <li><a href="#threading">6. Thread Configuration</a></li>
+            <li><a href="#job-submission">7. Submitting XML Jobs</a></li>
+            <li><a href="#lifecycle">8. Lifecycle Control</a></li>
+            <li><a href="#predictive">9. Predictive Shortcuts (Advanced)</a></li>
+            <li><a href="#best-practices">10. Best Practices</a></li>
+            <li><a href="#troubleshooting">11. Troubleshooting</a></li>
         </ul>
     </div>
 
@@ -103,21 +104,30 @@ public class MyParser {
         <h3>xmlBluePrint.regist(path, handler, token)</h3>
         <p>Registers an XPath-like path for event callbacks. Only the <strong>last segment</strong> receives callbacks.</p>
 
+        <div class="warning">
+            <strong>Important:</strong> Paths start from the <strong>first child of the root element</strong>. The root element itself is <em>not</em> included in the registered path. Use <code>rootRegist()</code> for root-level callbacks.
+        </div>
+
         <table>
             <tr><th>Parameter</th><th>Description</th></tr>
-            <tr><td><code>path</code></td><td>Absolute path starting with <code>/</code> (e.g., <code>/root/item/name</code>)</td></tr>
+            <tr><td><code>path</code></td><td>Absolute path starting with <code>/</code> from first child of root (e.g., <code>/catalog/book/author</code> for XML <code><root><catalog><book><author>...</code>)</td></tr>
             <tr><td><code>handler</code></td><td><code>xmlBluePrintCall</code> implementation</td></tr>
             <tr><td><code>token</code></td><td>User object passed back in callbacks (identifies which path triggered)</td></tr>
         </table>
 
         <h3>Examples</h3>
-        <pre><code>// Target: /catalog/book - fires on <book> open/close
+        <pre><code>// XML: <root><catalog><book><author>John</author></book></catalog></root>
+
+// Target: /catalog/book - fires on <book> open/close
 bp.regist("/catalog/book", handler, "book");
 
 // Target: /catalog/book/author - fires on <author> inside book
 bp.regist("/catalog/book/author", handler, "author");
 
 // Intermediate nodes (/catalog, /catalog/book) are routing only - no callbacks
+
+// Root element handled separately:
+bp.rootRegist(rootHandler, "root");
 </code></pre>
 
         <h3>Root Registration</h3>
@@ -132,6 +142,21 @@ bp.regist("/catalog/book/author", handler, "author");
 
         <div class="warning">
             <strong>Namespace handling:</strong> Tag names are hashed stopping at <code>:</code> or <code>}</code>, so <code>ns:Book</code> and <code>Book</code> match the same registration.
+        </div>
+
+        <h3>Unregistered Branch Handling</h3>
+        <p>When the parser encounters XML elements not in your registered paths, it enters <strong>skip mode</strong> with the following behavior:</p>
+
+        <ul>
+            <li><strong>No depth limit</strong> — not limited to 32 levels</li>
+            <li><strong>Tag-name based tracking</strong> — records the hash of the <em>first</em> unregistered tag encountered</li>
+            <li><strong>Depth counter</strong> — increments on each opening tag with the same name, decrements on closing tag with the same name</li>
+            <li><strong>Automatic unwind</strong> — when depth returns to 0, exits skip mode and resumes registered branch parsing</li>
+            <li><strong>No XML syntax validation</strong> — malformed XML in unregistered branches is silently ignored (no error callbacks)</li>
+        </ul>
+
+        <div class="note">
+            <strong>Guarantee:</strong> If the same unregistered tag name appears as both opening and closing (2nd/3rd occurrence), the parser will correctly unwind. The parser does not validate well-formedness of skipped content.
         </div>
     </section>
 
@@ -176,6 +201,166 @@ bp.regist("/catalog/book/author", handler, "author");
 
         <div class="tip">
             <strong>Return false</strong> to abandon current document and skip to next job. Useful for filtering.
+        </div>
+    </section>
+
+    <section id="holder-api">
+        <h2>5. Holder API & Waiting for Callbacks</h2>
+
+        <p>The <code>xmlBluePrintHolder</code> is passed to every callback and provides access to the current parsing context. Since XMLFastReader is multi-threaded and asynchronous, understanding how to wait for and process callbacks is crucial.</p>
+
+        <h3>Holder Methods Available in Callbacks</h3>
+        <table>
+            <tr><th>Method</th><th>Returns</th><th>Description</th></tr>
+            <tr><td><code>getByteBuffer()</code></td><td><code>byte[]</code></td><td>Original XML byte array for current job (null before root opens)</td></tr>
+            <tr><td><code>getXmlName()</code></td><td><code>byte[]</code></td><td>Job identifier/filename bytes</td></tr>
+            <tr><td><code>getXmlNameLength()</code></td><td><code>int</code></td><td>Length of job identifier</td></tr>
+            <tr><td><code>getErrorLocation()</code></td><td><code>int</code></td><td>Current byte offset (for error reporting)</td></tr>
+            <tr><td><code>getLogDistances()</code></td><td><code>long[]</code></td><td>Byte distances between targets (after job completes)</td></tr>
+            <tr><td><code>getLogHashes()</code></td><td><code>long[]</code></td><td>Target tag hashes in order (after job completes)</td></tr>
+            <tr><td><code>getLogSize()</code></td><td><code>int</code></td><td>Number of targets logged</td></tr>
+            <tr><td><code>charset</code></td><td><code>Charset</code></td><td>Detected charset from XML declaration (public field)</td></tr>
+        </table>
+
+        <h3>Accessing Tag/Attribute/Content Data</h3>
+        <p>Callbacks provide <strong>offsets</strong> into the original byte buffer — no strings are allocated by the parser:</p>
+        <pre><code>public boolean call(Object idToken, xmlBluePrintHolder holder,
+                     int event, int nameBegin, int nameEnd,
+                     int valueBegin, int valueEnd) {
+
+    byte[] buf = holder.getByteBuffer();  // Original XML bytes
+
+    // Tag name or attribute name
+    String name = new String(buf, nameBegin, nameEnd - nameBegin);
+
+    // Attribute value or inner text
+    String value = (valueBegin != valueEnd)
+        ? new String(buf, valueBegin, valueEnd - valueBegin)
+        : "";
+
+    // Job identifier
+    String jobName = new String(holder.getXmlName(), 0, holder.getXmlNameLength());
+
+    // Charset for correct decoding
+    Charset cs = holder.charset;
+
+    // Process event...
+    return true;  // Continue parsing
+    // return false; // Abort this document, skip to next job
+}</code></pre>
+
+        <h3>Waiting for Callbacks (Synchronous Processing)</h3>
+        <p>Since parsing happens in worker threads, callbacks are invoked <strong>asynchronously</strong>. To process results synchronously, use a completion latch or queue:</p>
+
+        <h4>Pattern 1: CountDownLatch for Single Job</h4>
+        <pre><code>import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicReference;
+
+CountDownLatch latch = new CountDownLatch(1);
+AtomicReference<ParseResult> resultRef = new AtomicReference<>();
+
+xmlBluePrintCall handler = (idToken, holder, event, nb, ne, vb, ve) -> {
+    // Collect data...
+    if (event == EV_CLOSE_TAG && "book".equals(idToken)) {
+        resultRef.set(new ParseResult(...));
+        latch.countDown();
+    }
+    return true;
+};
+
+bp.regist("/catalog/book", handler, "book");
+bp.run();
+
+bp.pushJob(xmlBytes, len, nameBytes, nameLen);
+latch.await();  // Block until callback signals completion
+
+ParseResult result = resultRef.get();</code></pre>
+
+        <h4>Pattern 2: BlockingQueue for Multiple Jobs</h4>
+        <pre><code>import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+
+BlockingQueue<ParseResult> results = new LinkedBlockingQueue<>();
+AtomicInteger jobCounter = new AtomicInteger();
+
+xmlBluePrintCall handler = (idToken, holder, event, nb, ne, vb, ve) -> {
+    if (event == EV_OPEN_TAG) {
+        // Start new record
+        currentRecord = new Record();
+    } else if (event == EV_ATTR) {
+        currentRecord.addAttr(name, value);
+    } else if (event == EV_INNER_TEXT) {
+        currentRecord.addText(value);
+    } else if (event == EV_CLOSE_TAG) {
+        results.offer(currentRecord.build());
+    }
+    return true;
+};
+
+bp.run();
+
+// Submit multiple jobs
+for (byte[] xml : xmlFiles) {
+    jobCounter.incrementAndGet();
+    bp.pushJob(xml, xml.length, name, name.length);
+}
+
+// Collect results
+for (int i = 0; i < jobCounter.get(); i++) {
+    ParseResult r = results.take();  // Blocks until available
+    process(r);
+}
+
+bp.shutdown(false);</code></pre>
+
+        <h4>Pattern 3: CompletableFuture (Java 8+)</h4>
+        <pre><code>import java.util.concurrent.CompletableFuture;
+
+Map<String, CompletableFuture<ParseResult>> futures = new ConcurrentHashMap<>();
+
+xmlBluePrintCall handler = (idToken, holder, event, nb, ne, vb, ve) -> {
+    String jobName = new String(holder.getXmlName(), 0, holder.getXmlNameLength());
+    CompletableFuture<ParseResult> future = futures.get(jobName);
+    if (future != null && event == EV_CLOSE_TAG) {
+        future.complete(parseResult);
+    }
+    return true;
+};
+
+bp.run();
+
+for (byte[] xml : xmlFiles) {
+    String id = UUID.randomUUID().toString();
+    CompletableFuture<ParseResult> f = new CompletableFuture<>();
+    futures.put(id, f);
+    bp.pushJob(xml, xml.length, id.getBytes(), id.length());
+
+    // Process asynchronously
+    f.thenAccept(result -> process(result));
+}</code></pre>
+
+        <h3>Thread Safety Notes</h3>
+        <ul>
+            <li>Each <code>xmlBluePrintHolder</code> is owned by a single worker thread — no concurrent access to the same holder</li>
+            <li>Callbacks execute on the <strong>worker thread</strong> — keep them fast, don't block</li>
+            <li>Use thread-safe collections (<code>ConcurrentHashMap</code>, <code>BlockingQueue</code>) to pass data to your main thread</li>
+            <li>The <code>byte[]</code> buffer is valid only during the callback — copy data if needed later</li>
+        </ul>
+
+        <div class="warning">
+            <strong>Do not call blocking operations in callbacks</strong> (Thread.sleep, I/O, locks). This stalls the worker thread and reduces throughput. Offload heavy work to another thread via queue.
+        </div>
+
+        <h3>Error Handling in Callbacks</h3>
+        <pre><code>bp.errorRegist((idToken, holder, event, nb, ne, vb, ve) -> {
+    int errorPos = holder.getErrorLocation();
+    String jobName = new String(holder.getXmlName(), 0, holder.getXmlNameLength());
+    log.error("XML error in {} at offset {}: event={}", jobName, errorPos, event);
+    return true;  // Continue with next job
+}, "error");</code></pre>
+
+        <div class="note">
+            <strong>Error events:</strong> <code>EV_EOF_IN_ROOT (1001)</code> = unexpected EOF, <code>EV_END_NE_BEGIN (1003)</code> = closing tag mismatch. Return <code>false</code> to skip the rest of the current document.
         </div>
     </section>
 

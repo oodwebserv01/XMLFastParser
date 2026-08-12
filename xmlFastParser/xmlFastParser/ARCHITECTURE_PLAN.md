@@ -37,6 +37,40 @@
 
 ---
 
+## Important Clarifications
+
+### 1. Path Registration Starts from First Child of Root (Not Root Itself)
+
+The registered paths **do not include the root element**. Registration begins at the first level **under** the root tag.
+
+```java
+// XML: <root><a><b><c>value</c></b></a></root>
+
+// Register path to <c> - starts from 'a' (first child of root), NOT 'root'
+regist("/a/b/c", handler, token);  // Correct: path from first child
+// regist("/root/a/b/c", ...)       // Wrong: root is not part of registered path
+```
+
+The root tag is handled separately via `rootRegist(rootHandler, rootToken)`.
+
+### 2. Unregistered Branch Handling (No Depth Limit, Tag-Name Based Unwind)
+
+Unregistered branches are **not limited to 32 levels**. Instead:
+
+- On first unregistered tag encountered: record its **tag name hash** + set `skipDepth = 1`
+- On subsequent `<tag>` with **same hash**: increment `skipDepth`
+- On `</tag>` with **same hash**: decrement `skipDepth`
+- When `skipDepth` returns to 0: exit skip mode, resume registered branch parsing
+
+**Key properties:**
+- No hard depth limit (unbounded nesting)
+- Does **not** validate XML syntax in unregistered branches
+- Only tracks the **first unregistered tag name** (by hash)
+- Guarantees correct unwind when same tag name appears 2nd/3rd time
+- Malformed XML in unregistered branches is ignored (no error callbacks)
+
+---
+
 ## xmlBluePrint Responsibilities (ALL XML Logic)
 
 ### 1. State Machine Constants

@@ -229,6 +229,10 @@ if (holder.skipDepth > 0) {           // In skip mode
     if (holder.currentNode.isTarget) fireOpenTag();
     // ... handle attrs, self-close, etc.
 }</code></pre>
+
+        <div class="note">
+            <strong>Unregistered Branch Handling (No Depth Limit):</strong> The parser tracks the <em>first</em> unregistered tag name (by hash) and a depth counter. On same tag name: depth++ (open) or depth-- (close). When depth returns to 0: exits skip mode. No XML syntax validation in skipped branches — malformed content is silently ignored.
+        </div>
     </section>
 
     <section id="handlers">

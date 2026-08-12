@@ -11,18 +11,24 @@ import xmlFastParser.xmlBluePrintNode;
 public class xmlBluePrint {
 /*
 Usage Instructions
- - Register all paths you want to | XML tag paths you want to extract data from
-    rootRegist(xmlBluePrintCallR, idTokenR);
-    errorRegist(xmlBluePrintCallE, idTokenE);
-    regist("/firstLevelBlanch/secondLevelBlanch/thirdLevelBlanch/tagNameA", xmlBluePrintCall1, idTokenX);
-    regist("/firstLevelBlanch/secondLevelBlanch/tagNameB", xmlBluePrintCall2, idTokenY);
+ - Register all paths you want to extract data from.
+   Paths start from the FIRST CHILD OF ROOT (root itself is NOT included in the path).
+   Root tag is handled separately via rootRegist().
+
+   rootRegist(xmlBluePrintCallR, idTokenR);   // Handler for root element
+   errorRegist(xmlBluePrintCallE, idTokenE);  // Error handler
+
+   // XML: <root><a><b><c>value</c></b></a></root>
+   // Register path to <c> -> "/a/b/c" (starts from 'a', first child of root)
+   regist("/a/b/c", xmlBluePrintCall1, idTokenX);
+   regist("/a/b", xmlBluePrintCall2, idTokenY);
 
  - After registering all paths, set the number of threads to use for data processing
-    setThreadCount(n);   
+    setThreadCount(n);
 
  - Check if the job queue has space available. If there is space, you can submit jobs
 
-    // get first xml byte[] => src 
+    // get first xml byte[] => src
     while (0 < remainingJob) {
         if (0 == xmlBluePrint.jobQueSpace()) {
             xmlBluePrint.run();
@@ -32,7 +38,7 @@ Usage Instructions
         }
     }
     xmlBluePrint.run();
-    
+
  - Waiting for events
     -- Implement xmlBluePrintCall to receive
       --- idToken {Object you specified during registration, used to identify which path this event belongs to}
@@ -40,9 +46,16 @@ Usage Instructions
       --- event { 0 = unknown_error, 1 = openTag, 2 = closeTag, 3 = attribute, 4 = innerText }
       --- attributeName { byte[] name of the attribute of the found tag }
       --- attributeNameLength { int length of the attribute name }
-      --- attributeValue { byte[] value of the found attribute OR innerText of the found tag } 
+      --- attributeValue { byte[] value of the found attribute OR innerText of the found tag }
       --- attributeValueLength { int length of the attribute value OR innerText of the found tag }
 
+ - Unregistered Branch Handling (Important):
+   * No depth limit (not limited to 32 levels)
+   * Tracks FIRST unregistered tag name (by hash) + nesting depth
+   * On same tag name again: depth++ (open) or depth-- (close)
+   * When depth returns to 0: exits skip mode, resumes registered branch
+   * Does NOT validate XML syntax in unregistered branches
+   * Malformed XML in unregistered branches is silently ignored
  */
    public static void regist(String path, xmlBluePrintCall handler, Object token) {
        // Check if path is null, empty, or doesn't start with '/'

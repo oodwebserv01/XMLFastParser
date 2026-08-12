@@ -174,6 +174,10 @@ return h;</code></pre>
             └─ "title"  (hash=H4, isTarget=true, handler, token)</code></pre>
 
             <p>Only <strong>leaf nodes</strong> (last segment of <code>regist()</code>) get <code>handler</code>/<code>token</code> and <code>isTarget=true</code>. Intermediate nodes are pure routing.</p>
+
+            <div class="note">
+                <strong>Paths start from first child of root:</strong> The registered path <code>/catalog/book/author</code> corresponds to XML <code><root><catalog><book><author>...</code>. The root element is handled separately via <code>rootRegist()</code> and is <em>not</em> included in the path.
+            </div>
         </section>
 
         <section id="thread-concept">
@@ -209,6 +213,19 @@ Per-Holder Queue (Worker, 512 each):
         </section>
 
         <section id="predict-concept">
+            <h4>Unregistered Branch Handling (No Depth Limit)</h4>
+            <p>When the parser encounters elements not in registered paths, it enters skip mode:</p>
+            <ul>
+                <li>Tracks the <em>first</em> unregistered tag name (by hash) + depth counter</li>
+                <li>On same tag name: depth++ (open) or depth-- (close)</li>
+                <li>When depth returns to 0: exits skip mode, resumes registered branch</li>
+                <li><strong>No 32-level limit</strong> — depth is unbounded</li>
+                <li><strong>No XML syntax validation</strong> in skipped branches — malformed content silently ignored</li>
+            </ul>
+            <div class="note">
+                <strong>Guarantee:</strong> If the same unregistered tag name appears as both opening and closing (2nd/3rd occurrence), the parser will correctly unwind.
+            </div>
+
             <h3>5. Predictive Shortcuts (Log-Based Acceleration)</h3>
 
             <h4>Concept</h4>
@@ -308,7 +325,7 @@ distanceRatioMatch = avg(1 - |storedRatio - emergingRatio| / maxRatio)</code></p
             <li><strong>First parse:</strong> No prediction benefit (cold start)</li>
             <li><strong>Dissimilar XML:</strong> Predictions disabled after mismatch</li>
             <li><strong>Small files:</strong> Thread overhead may dominate</li>
-            <li><strong>Deep nesting:</strong> Skip depth limited to 32</li>
+            <li><strong>Deep nesting:</strong> Unregistered branches track first tag name + depth (no 32-level limit); very deep same-tag nesting correctly handled</li>
         </ul>
     </section>
 
