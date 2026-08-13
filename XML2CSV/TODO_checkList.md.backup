@@ -10,15 +10,15 @@
 ```
 
 ### ขั้นตอนการใช้งาน:
-1. **เริ่มงาน** - เ� เ�� เปลี่ยน `[_]` เป็น `[~]` เมื่อเริ่มทำรายการนั้น
-2. **ทำเสร็จ** - เ� เ�� เปลี่ยน `[~]` เป็น `[/]` เมื่อเสร็จสิ้นรายการนั้น
-3. **มีปัญหา** - เ� เ�� เปลี่ยนเป็น `[!]` และเขียนหมายเหตุข้างๆ หาก blocked
+1. **เริ่มงาน** - เ� เปลี่ยน `[_]` เป็น `[~]` เมื่อเริ่มทำรายการนั้น
+2. **ทำเสร็จ** - เ� เปลี่ยน `[~]` เป็น `[/]` เมื่อเสร็จสิ้นรายการนั้น
+3. **มีปัญหา** - เ� เปลี่ยนเป็น `[!]` และเขียนหมายเหตุข้างๆ หาก blocked
 4. **Review** - ทบทวนรายการ `[/]` ว่าครอบคลุมทุก acceptance criteria
 5. **Commit** - คอมมิต code พร้อมอ้างอิง checklist item ที่เกี่ยวข้อง
 
 ### หลักการย่อยงาน (Task Breakdown):
 - 1 หน้าที่ (function) = 1 checklist item (ระดับล่างสุด)
-- ใช้ dynamic checkbox: เ� เ�� เปลี่ยนสถานะ real-time ขณะทำงาน
+- ใช้ dynamic checkbox: เ� เปลี่ยนสถานะ real-time ขณะทำงาน
 - ย่อยจนระดับ "ทำได้ใน 15-30 นาที" ต่อ item
 - รวม edge cases และ error handling ในแต่ละ feature
 
@@ -189,8 +189,8 @@
 ## Phase 8: Backup Renamer (BackupRenamer)
 
 ### 8.1 Rename Rules
-- [/] `FileName.xml` → `xmlFileName.bak` (เติม `xml` หน้า + เ� เ�� เปลี่ยนสกุล `.bak`)
-- [/] `XMLZipFile.zip` → `zipXMLZipFile.bak` (เติม `zip` หน้า + เ� เ�� เปลี่ยนสกุล `.bak`)
+- [/] `FileName.xml` → `xmlFileName.bak` (เติม `xml` หน้า + เ� เปลี่ยนสกุล `.bak`)
+- [/] `XMLZipFile.zip` → `zipXMLZipFile.bak` (เติม `zip` หน้า + เ� เปลี่ยนสกุล `.bak`)
 
 ### 8.2 Implementation
 - [/] `renameToBackup(Path file)` → `Path backupPath`
@@ -203,31 +203,31 @@
 ## Phase 9: Main Orchestration (XML2CSV.java)
 
 ### 9.1 Main Flow
-- [/] Parse CLI args
-- [/] Parse .bp file
-- [/] Initialize xmlBluePrint with config
-- [/] Initialize CSV writers, Log manager
-- [/] Scan all XML sources (files + zip entries)
-- [/] For each source: submit to blueprint
-- [/] Wait for all jobs to complete
-- [/] Finalize CSV writers (rename pending)
-- [/] Finalize logs (rename pending)
-- [/] Rename processed source files to .bak
-- [/] Shutdown blueprint gracefully
-- [/] Print summary: total, success, fail
+- [_] Parse CLI args
+- [_] Parse .bp file
+- [_] Initialize xmlBluePrint with config
+- [_] Initialize CSV writers, Log manager
+- [_] Scan all XML sources (files + zip entries)
+- [_] For each source: submit to blueprint
+- [_] Wait for all jobs to complete
+- [_] Finalize CSV writers (rename pending)
+- [_] Finalize logs (rename pending)
+- [_] Rename processed source files to .bak
+- [_] Shutdown blueprint gracefully
+- [_] Print summary: total, success, fail
 
 ### 9.2 Error Handling
-- [/] Catch exceptions per file → log fail, continue others
-- [/] Graceful shutdown on Ctrl+C (shutdown hook)
-- [/] Timeout handling for stuck jobs
+- [_] Catch exceptions per file → log fail, continue others
+- [_] Graceful shutdown on Ctrl+C (shutdown hook)
+- [_] Timeout handling for stuck jobs
 
 ---
 
 ## Phase 10: Testing & Verification
 
 ### 10.1 Unit Tests
-- [~] BPParser: parse example 1 correctly (testing with sample data)
-- [~] BPParser: parse example 2 (shorthand) correctly (testing with sample data)
+- [_] BPParser: parse example 1 correctly
+- [_] BPParser: parse example 2 (shorthand) correctly
 - [_] BPParser: shorthand resolution logic
 - [_] FileScanner: find XML in nested folders
 - [_] FileScanner: find XML in zip files
@@ -300,4 +300,4 @@ Phase 12: Edge Cases & Polish       [_] 0/8
 Total:                              [ ] 61/92
 ```
 
-> **หมายเหตุ**: อัพเดตตัวเลข progress ทุกครั้งที่ทำเสร็จ phase ใด phase หนึ่ง โดยนับ `[/]` ใน phase นั้น. รายการที่มี `[~]` อยู่ระหว่างดำเนินการแต่ยังไม่นับเป็นเสร็จสิ้น.
+> **หมายเหตุ**: อัพเดตตัวเลข progress ทุกครั้งที่ทำเสร็จ phase ใด phase หนึ่ง โดยนับ `[/]` ใน phase นั้น
