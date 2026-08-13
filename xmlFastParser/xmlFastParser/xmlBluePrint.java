@@ -335,6 +335,15 @@ Usage Instructions
       return actualHash == expectedHash;
    }
 
+   // this function for checking status if Parser is ready to down;
+   public static boolean isReadyToDown(){
+      boolean ret = true;
+      for (int i = holders.length-1; i>=0; i-- ) {
+         ret &= holders[i].ready2down;
+      }
+      return ret;
+   }
+
    public void run(){
       // Check if not already running to prevent multiple starts
       if (!running) {
@@ -428,8 +437,6 @@ Usage Instructions
                      System.arraycopy(holder.logHashes, 0, finalHash, 0, holder.logSize);
                      xmlBluePrint.collectLog(new xmlBluePrint.LogEntry(finalDist, finalHash, holder.logSize));
                   }
-
-                  holder.ready2down = shuttingdown;
                }
 
             }, "xml-worker-" + i);

@@ -53,7 +53,8 @@ public class xmlBluePrintHolder {
 
     // Get job from job queue
     boolean nextJob() {
-        if (cp != pp) {
+        if (cp != pp && !xmlBluePrint.forceShutdown) {
+            ready2down = false;
             charset = java.nio.charset.StandardCharsets.UTF_8;
             fHeaderCharset = false;
             pointer = 0;
@@ -79,7 +80,8 @@ public class xmlBluePrintHolder {
             cp = (cp + 1) & jobQueMask;
             return true;
         } else {
-            pointer = jobLength[cp];
+            pointer = jobLength[this.cp];
+            ready2down = true;
             return false;
         }
     }

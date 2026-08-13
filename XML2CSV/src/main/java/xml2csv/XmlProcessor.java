@@ -137,24 +137,14 @@ public class XmlProcessor implements xmlBluePrintCall {
 
     /**
      * Wait for all jobs to complete and shutdown.
+     * @param force if true, forces immediate shutdown even if queue is not empty
      */
-    public void waitAndShutdown() {
-        System.out.println("DEBUG: waitAndShutdown called");
-        System.out.println("DEBUG: About to call blueprint.run() in waitAndShutdown");
-        blueprint.run(); // Ensure all jobs are distributed
-        System.out.println("DEBUG: Called blueprint.run() in waitAndShutdown");
-        System.out.println("DEBUG: About to call blueprint.run() in waitAndShutdown");
-        System.out.println("DEBUG: Called blueprint.run() in waitAndShutdown");
-        System.out.println("DEBUG: Called blueprint.run() in waitAndShutdown");
-        System.out.println("DEBUG: Called blueprint.run() in waitAndShutdown");
+    public void waitAndShutdown(boolean force) {
+        // Ensure all jobs are distributed before shutdown
+        blueprint.run();
 
-        // Wait for queue to drain
-        while (blueprint.jobQueSpace() < (blueprint.jobQueSize - 1)) {
-            try { Thread.sleep(100); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-        }
-
-        // Graceful shutdown
-        blueprint.shutdown(false);
+        // Wait for all jobs to complete and shutdown
+        blueprint.shutdown(force);
     }
 
     /**

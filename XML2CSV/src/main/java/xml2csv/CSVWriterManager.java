@@ -182,12 +182,12 @@ public class CSVWriterManager {
         int lastUnderscore = key.lastIndexOf('_');
         String fileName = key.substring(0, lastUnderscore);
 
-        String timestampedName = fileName + "_Thread" + key.substring(lastUnderscore + 1) + "_" + timestamp + ".csv";
+        String timestampedName = fileName + "_" + key.substring(lastUnderscore + 1) + "_" + timestamp + ".csv";
         Path targetPath = destDir.resolve(timestampedName);
 
         int counter = 1;
         while (Files.exists(targetPath)) {
-            targetPath = destDir.resolve(fileName + "_Thread" + key.substring(lastUnderscore + 1) + "_" + timestamp + "_" + counter + ".csv");
+            targetPath = destDir.resolve(fileName + "_" + key.substring(lastUnderscore + 1) + "_" + timestamp + "_" + counter + ".csv");
             counter++;
         }
 

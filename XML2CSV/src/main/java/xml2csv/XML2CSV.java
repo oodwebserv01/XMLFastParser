@@ -90,7 +90,7 @@ public class XML2CSV {
 
             // Wait for all processing to complete
             System.out.println("\nWaiting for processing to complete...");
-            processor.waitAndShutdown();
+            processor.waitAndShutdown(false);
 
             // Finalize outputs
             System.out.println("Finalizing CSV files...");
