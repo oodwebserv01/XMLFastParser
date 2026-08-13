@@ -1,0 +1,2 @@
+Main-Class: xml2csv.XML2CSV
+Class-Path: lib/commons-compress-1.27.1.jar lib/commons-io-2.16.1.jar lib/opencsv-5.9.jar lib/slf4j-api-2.0.13.jar lib/slf4j-simple-2.0.13.jar lib/xmlFastParser.jar

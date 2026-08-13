@@ -49,30 +49,9 @@ public class XmlProcessor implements xmlBluePrintCall {
         // Create blueprint instance
         this.blueprint = new xmlBluePrint();
 
-        // Register all entity paths and fields
-        for (BPCsvOutput output : config.getOutputs()) {
-            for (BPEntity entity : output.getEntities()) {
-                String entityPath = entity.getEntityPath();
-                EntityContext ctx = new EntityContext(output.getFileName(), entityPath);
-                entityContexts.put(entityPath, ctx);
-
-                // Register the entity path as a target
-                // Path starts from first child of root (per xmlBluePrint convention)
-                String registPath = entityPath; // e.g., /Transaction/Invoid/Items/Item
-                // We need to register without the leading / for the first segment?
-                // Actually xmlBluePrint.regist expects path starting with /
-                // and it starts from first child of root
-                // So if XML is <root><Transaction>...</Transaction></root>
-                // and entityPath is /Transaction/Invoid/Items/Item
-                // we register "/Transaction/Invoid/Items/Item" - this is correct per docs
-
-                // We'll use a special token to identify which output file this target belongs to
-                String token = output.getFileName() + "|" + entityPath;
-            }
-        }
-
         // Register root handler
         blueprint.rootRegist(this, "ROOT_HANDLER");
+        System.out.println("DEBUG: Called rootRegist");
 
         // Register error handler
         blueprint.errorRegist(this, "ERROR_HANDLER");
@@ -133,14 +112,17 @@ public class XmlProcessor implements xmlBluePrintCall {
 
         // Log read
         logManager.logRead(fileName);
+        System.out.println("DEBUG: Completed processSource for file=" + fileName);
 
         // Submit job to blueprint
         byte[] nameBytes = fileName.getBytes();
         boolean submitted = false;
+        System.out.println("DEBUG: About to submit job, data length=" + data.length);
         int retries = 0;
 
         while (!submitted && retries < 100) {
             submitted = blueprint.pushJob(data, data.length, nameBytes, nameBytes.length);
+            System.out.println("DEBUG: pushJob returned=" + submitted);
             if (!submitted) {
                 blueprint.run();
                 try { Thread.sleep(50); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
@@ -157,7 +139,14 @@ public class XmlProcessor implements xmlBluePrintCall {
      * Wait for all jobs to complete and shutdown.
      */
     public void waitAndShutdown() {
+        System.out.println("DEBUG: waitAndShutdown called");
+        System.out.println("DEBUG: About to call blueprint.run() in waitAndShutdown");
         blueprint.run(); // Ensure all jobs are distributed
+        System.out.println("DEBUG: Called blueprint.run() in waitAndShutdown");
+        System.out.println("DEBUG: About to call blueprint.run() in waitAndShutdown");
+        System.out.println("DEBUG: Called blueprint.run() in waitAndShutdown");
+        System.out.println("DEBUG: Called blueprint.run() in waitAndShutdown");
+        System.out.println("DEBUG: Called blueprint.run() in waitAndShutdown");
 
         // Wait for queue to drain
         while (blueprint.jobQueSpace() < (blueprint.jobQueSize - 1)) {

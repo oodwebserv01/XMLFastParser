@@ -368,6 +368,7 @@ Usage Instructions
 
                   // Get next job from holder's queue (advances cp, resets parse state)
                   if (!holder.nextJob()) {
+                System.out.println("DEBUG: Worker thread " + holder.threadNo + " jobLength=" + holder.jobLength[holder.cp] + ", initial pointer=" + holder.pointer);
                      // No job available, wait
                      while (!shuttingdown && (holder.cp == holder.pp)) LockSupport.parkNanos(5_000_000L);
                      continue;

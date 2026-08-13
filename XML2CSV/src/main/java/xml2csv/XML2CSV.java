@@ -59,7 +59,7 @@ public class XML2CSV {
 
             XmlProcessor processor = new XmlProcessor(config, csvManager, logManager, backupRenamer, cliArgs.getThreadCount());
             processor.initialize();
-            processor.registerPaths();
+            processor.registerPaths();  // Ensure paths are registered for parsing
 
             // Scan source files
             System.out.println("Scanning source directory...");
