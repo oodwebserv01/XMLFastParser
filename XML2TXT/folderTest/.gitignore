@@ -1,0 +1,54 @@
+# Java build files
+*.class
+bin/
+build/
+
+# IDE files
+.idea/
+.vscode/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# Output files
+*.txt
+*.bak
+*.zip
+
+# Test files
+Test*.java
+*Test*.java
+
+# Package files
+*.jar
+*.war
+*.ear
+
+# Maven files
+pom.xml
+
+# Gradle files
+.gradle
+gradle-wrapper.jar
+gradle-wrapper.properties
+
+# Environment files
+.env
+
+# Personal files
+*.key
+*.keystore
+
+# Other
+*.swp
+*.swo
+*~

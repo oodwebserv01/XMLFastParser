@@ -9,7 +9,7 @@ import java.util.concurrent.locks.LockSupport;
 public class xmlBluePrintHolder {
 
     public byte[] getByteBuffer(){
-        if (xmlState <= xmlBluePrint.S_ROOT_OPEN) return null;
+        if (xmlState <= xmlBluePrint.S_ROOT_BEGIN) return null;
         return jobStart[cp] ;
     }
 
@@ -23,6 +23,62 @@ public class xmlBluePrintHolder {
 
     public int getXmlNameLength() {
         return jobNameLength[cp] ;
+    }
+
+    // ==========================================
+    // ROUTING CONTEXT (Populated by xmlBluePrint)
+    // ==========================================
+
+    // All target hashes for fast lookup during parsing
+    public java.util.Set<Long> targetHashes;
+
+    // Current target hash being processed
+    public long currentTargetHash;
+
+    // Children of current target for path matching
+    public java.util.Map<Long, xmlBluePrintNode> currentChildren;
+
+    // Current target node (for handler/token access)
+    public xmlBluePrintNode currentTargetNode;
+
+    // Current child node (for child handler/token access)
+    public xmlBluePrintNode currentChildNode;
+
+    // For ignore tag tracking
+    public long ignoreTagHash;           // Hash of tag being ignored
+    public int ignoreDepth;              // Nesting depth of ignore tag
+
+    // ==========================================
+    // HANDLERS & TOKENS
+    // ==========================================
+
+    public Object rootIdToken;
+    public xmlBluePrintCall rootHandler;
+    public xmlBluePrintCall errorHandler;
+
+    public Object errorToken;
+
+    // ==========================================
+    // UTILITY METHODS
+    // ==========================================
+
+    public boolean isTargetRegistered(long hash) {
+        return targetHashes != null && targetHashes.contains(hash);
+    }
+
+    public xmlBluePrintNode getChildNode(long hash) {
+        return currentChildren != null ? currentChildren.get(hash) : null;
+    }
+
+    public String getCurrentPath() {
+        if (currentTargetNode == null) return null;
+        StringBuilder path = new StringBuilder();
+        xmlBluePrintNode node = currentTargetNode;
+        while (node != null && node.parent != null && node.parent.tagHash != 0) {
+            path.insert(0, "/" + node.tagHash);
+            node = node.parent;
+        }
+        return path.toString();
     }
 
     // VarHandle for StoreLoad barrier (array element visibility) - JDK 9+
