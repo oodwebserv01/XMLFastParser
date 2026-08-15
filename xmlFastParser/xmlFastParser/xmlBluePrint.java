@@ -629,64 +629,67 @@ Usage Instructions
    // ============================================================
    // State Constants
    // ============================================================
-   public static final int xmlState_MAX = 54;
-
    // OUTSIDE ROOT (0-7)
-   public static final int S_HEADER                = 0;
-   public static final int S_HEAD_LT               = 1;
-   public static final int S_HEADER_BANG           = 2;
-   public static final int S_HEADER_PI             = 3;
-   public static final int S_HEADER_DASH           = 5;
-   public static final int S_HEADER_2DASH          = 6;
-   public static final int S_HEADER_MINUS_DASH     = 7;
-   public static final int S_HEADER_MINUS_2DASH    = 8;
-   public static final int S_HEADER_X              = 9;
-   public static final int S_HEADER_XM             = 10;
-   public static final int S_HEADER_XML             = 11;
-   public static final int S_HEADER_ATTR             = 12;
-   public static final int S_HEADER_E             = 13;
-   public static final int S_HEADER_C             = 14;  
-   public static final int S_EN             = 15;  
+   public static final int S_HEADER             = 0;
+   public static final int S_HEAD_LT            = 1;
+   public static final int S_HEADER_BANG        = 2;
+   public static final int S_HEADER_PI          = 3;
+   public static final int S_HEADER_DASH        = 5;
+   public static final int S_HEADER_2DASH       = 6;
+   public static final int S_HEADER_MINUS_DASH  = 7;
+   public static final int S_HEADER_MINUS_2DASH = 8;
+   public static final int S_HEADER_X        = 9;
+   public static final int S_HEADER_XM       = 10;
+   public static final int S_HEADER_XML      = 11;
+   public static final int S_HEADER_ATTR     = 12;
+   public static final int S_HEADER_E        = 13;
+   public static final int S_HEADER_C        = 14;  
+   public static final int S_EN              = 15;  
    public static final int S_ENC             = 16;  
-   public static final int S_ENCO             = 17;  
-   public static final int S_ENCOD             = 18; 
-   public static final int S_ENCODI            = 19; 
-   public static final int S_ENCODIN           = 20; 
-   public static final int S_ENCODING          = 21; 
-   public static final int S_ENC_VALUE         = 22; 
-   public static final int S_ENC_QUOTE         = 23; 
-   public static final int S_ENC_DQUOTE        = 24; 
-   public static final int S_ENC_CHARSET       = 25;
-   public static final int S_CHR_C            = 26; 
-   public static final int S_CHR_CH           = 27; 
-   public static final int S_CHR_CHA          = 28; 
-   public static final int S_CHR_CHAR         = 29;  
-   public static final int S_CHR_CHARSE        = 30; 
-   public static final int S_CHR_CHARSET       = 31; 
-   public static final int S_HEAD_CHAR       = 32; 
-   public static final int S_ROOT_OPEN       = 33; 
-   public static final int S_NEXT_XML       = 34; 
-   public static final int S_TARGET_INNER     = 35; 
-   public static final int S_TARGET_ATTR     = 36; 
-   public static final int S_VAL_ATTR     = 37;    
-   public static final int S_QUOTE_VALUE     = 38;   
-   public static final int S_DQUOTE_VALUE     = 39;   
-   public static final int S_VAL_VALUE     = 40;  
-   public static final int S_LT     = 41;  
-   public static final int S_BANG     = 42;  
-   public static final int S_DASH     = 43;  
-   public static final int S_2DASH     = 44;  
-   public static final int S_MINUS_DASH     = 45;  
-   public static final int S_MINUS_2DASH     = 46;  
-   public static final int S_PI     = 47;  
-   public static final int S_TAG_OPEN     = 48;  
-   public static final int S_ATTR     = 49;  
-   public static final int S_INNER     = 50;  
-   public static final int S_SLASH     = 51;  
-   public static final int S_GT_ONLY     = 52;  
-   public static final int S_UNREGIST_BRANCH     = 53;  
+   public static final int S_ENCO            = 17;  
+   public static final int S_ENCOD           = 18; 
+   public static final int S_ENCODI          = 19; 
+   public static final int S_ENCODIN         = 20; 
+   public static final int S_ENCODING        = 21; 
+   public static final int S_ENC_VALUE       = 22; 
+   public static final int S_ENC_QUOTE       = 23; 
+   public static final int S_ENC_DQUOTE      = 24; 
+   public static final int S_ENC_CHARSET     = 25;
+   public static final int S_CHR_C           = 26; 
+   public static final int S_CHR_CH          = 27; 
+   public static final int S_CHR_CHA         = 28; 
+   public static final int S_CHR_CHAR        = 29;  
+   public static final int S_CHR_CHARSE      = 30; 
+   public static final int S_CHR_CHARSET     = 31; 
+   public static final int S_ROOT_POSIBLE    = 32; 
+   public static final int S_ROOT_BEGIN      = 33; 
+   public static final int S_TAG_BEGIN       = 34;    
+   public static final int S_TARGET_INTAG    = 35;    
+   public static final int S_INTAG           = 36;       
+   public static final int S_NEXT_XML        = 37; 
+   public static final int S_TARGET_INNER    = 38; 
+   public static final int S_ATTR            = 39; 
+   public static final int S_VAL_ATTR        = 40;    
+   public static final int S_QUOTE_VALUE     = 41;   
+   public static final int S_DQUOTE_VALUE    = 42;   
+   public static final int S_VAL_VALUE       = 43;  
+   public static final int S_LT              = 44;  
+   public static final int S_BANG            = 45;  
+   public static final int S_DASH            = 46;  
+   public static final int S_2DASH           = 47;  
+   public static final int S_MINUS_DASH      = 48;  
+   public static final int S_MINUS_2DASH     = 49;  
+   public static final int S_PI              = 50;  
 
-   // CHILD TAG (18-20)
+
+   public static final int S_INNER           = 51;  
+   public static final int S_SLASH           = 52;  
+   public static final int S_GT_ONLY         = 53;  
+   public static final int S_UNREGIST_BRANCH = 54;  
+
+   public static final int xmlState_MAX      = 55;
+
+ // CHILD TAG (18-20)
 
    // Event types (สำหรับ handler interface)
    public static final int EV_OPEN_TAG    = 1;
@@ -696,6 +699,7 @@ Usage Instructions
   
    public static final int EV_UNKNOWN_ERROR = 0;
    public static final int EV_EOF_IN_ROOT = 1001;
+   public static final int EV_EXPECTED_END = 1002;
    public static final int EV_END_NE_BEGIN = 1003;
 
    /*--- TOC Handlling--- */
@@ -1087,7 +1091,7 @@ Usage Instructions
       @Override
       public void call(xmlBluePrintHolder holder) {
          holder.tagName = holder.pointer++;
-         holder.xmlState = S_HEAD_CHAR;
+         holder.xmlState = S_ROOT_POSIBLE;
          return ;
       }
    };   
@@ -1099,10 +1103,10 @@ Usage Instructions
     * Processing steps:
     * 1. Check if the previous character was '/' (indicating a closing tag)
     * 2. If it's a closing tag ('/'), move to S_HEADER state to process the closing
-    * 3. If it's an opening tag, move to S_ROOT_OPEN state to continue processing
+    * 3. If it's an opening tag, move to S_ROOT_BEGIN state to continue processing
     * 4. In both cases, increment the pointer appropriately
     */
-   private static final CELL HD_CHK_ROOT = new CELL() {
+   private static final CELL HD_ROOT_POSIBLE = new CELL() {
       @Override
       public void call(xmlBluePrintHolder holder) {
          if ('/' == holder.jobStart[holder.cp][holder.pointer-1]) {
@@ -1110,32 +1114,18 @@ Usage Instructions
             holder.xmlState = S_HEADER;
          } else {
             holder.pointer = holder.tagName+1;
-            holder.xmlState = S_ROOT_OPEN;
+            holder.xmlState = S_ROOT_BEGIN;
          }
          return ;
       }
    };   
 
-   /**
-    * Handles the opening of the root XML tag.
-    * Called when parsing encounters the root tag opening (e.g., <root>).
-    * 
-    * Processing steps:
-    * 1. Mark the end of the root tag name
-    * 2. Compute hash for the root tag name
-    * 3. Set current node to root
-    * 4. Call the root handler for the open tag event
-    * 5. If handler returns false, skip to next XML document
-    * 6. Handle self-closing root tags (<root/>) by transitioning to inner content
-    * 7. For root tags with attributes, transition to attribute processing
-    * 8. For simple root tags (>), transition to processing inner content
-    */
-   private static final CELL HD_ROOT_OPEN = new CELL() {
+   private static final CELL HD_ROOT_TAGNAME = new CELL() {
       @Override
       public void call(xmlBluePrintHolder holder) {
-         holder.tagNameEnd = holder.pointer++;
+         // Capture hRootName use for close tag matching
+         holder.tagNameEnd = holder.pointer;
          holder.hRootName = hash(holder.jobStart[holder.cp],holder.tagName,holder.tagNameEnd);
-         root.tagHash = holder.hRootName; // Fix: set root tagHash for close tag matching
          holder.currentNode = root;
 
          // Initialize target distance log
@@ -1147,84 +1137,173 @@ Usage Instructions
          holder.predictionActive = false;
          holder.predictionValid = true;
 
-         if (rootHandler != null && ! rootHandler.call(rootToken,holder,EV_OPEN_TAG,holder.tagName,holder.tagNameEnd,0,0)) {
-            HD_NEXT_XML(holder);
-            return ;
+         if (rootHandler != null ) {
+            if (! rootHandler.call(rootToken,holder,EV_OPEN_TAG,holder.tagName,holder.tagNameEnd,0,0)) {
+               HD_NEXT_XML(holder);
+               return ;
+            }
+            holder.xmlState = S_TARGET_INTAG;
+         } else {
+            holder.xmlState = S_INTAG;
          }
-         if ('>' == holder.jobStart[holder.cp][holder.pointer-1]) { //  rootTag closing here
-            holder.xmlState = S_TARGET_INNER;
-            holder.value = holder.pointer;
-         } else { // rootTag attr here
-            holder.xmlState = S_TARGET_ATTR;
-            holder.valEnd = holder.value = holder.attrName = holder.pointer;
-         } 
-         return ;
       }
    };   
 
-   /**
-    * Handles XML attributes without values (e.g., <tag attr> where attr has no explicit value).
-    * Called when parsing encounters an attribute name followed by a delimiter (space, >, /).
-    * 
-    * Processing steps:
-    * 1. Mark the end of the attribute name
-    * 2. Determine if this is the last attribute in the tag or a self-closing tag
-    * 3. If there's an attribute name, callback to the user handler with empty value
-    * 4. Handle self-closing tags (<tag/>) by calling close tag handler
-    * 5. For last attributes, transition to processing tag inner content
-    * 6. For more attributes, prepare to read the next attribute name
-    */
-   private static final CELL HD_NOVAL_ATTR = new CELL() {
+   private static final CELL HD_TAGNAME = new CELL() {
       @Override
       public void call(xmlBluePrintHolder holder) {
-         holder.attrEnd = holder.pointer++;
-         boolean isLastAttr = ('>' == holder.jobStart[holder.cp][holder.pointer-1]);
-         boolean isSelfClose = (isLastAttr && '/' == holder.jobStart[holder.cp][holder.pointer-2]);
-         if (isSelfClose) {
-            holder.attrEnd--;
-         } 
+         holder.tagNameEnd = holder.pointer;
+         long hTagName = hash(holder.jobStart[holder.cp], holder.tagName, holder.tagNameEnd);
 
-         if (holder.attrEnd > holder.attrName) {
-            // callback to user
-            if (!holder.currentNode.handler.call(holder.currentNode.idToken, holder, EV_ATTR, holder.attrName, holder.attrEnd, 0, 0)){
-               HD_NEXT_XML(holder);
-               return;
-            }
-         }
-
-         // case this is self ending tag
-         if (isSelfClose) { 
-            if (! holder.currentNode.handler.call(holder.currentNode.idToken, holder, EV_CLOSE_TAG, 0, 0, 0, 0)) {
-               HD_NEXT_XML(holder);
-               return;
-            } else {
-               holder.currentNode = holder.currentNode.parent;
-               holder.xmlState = S_TARGET_INNER;   
-               holder.value = holder.pointer;
-               return;   
-            } 
-         }
-
-         // case this is last attribute
-         if (isLastAttr) { 
-            holder.xmlState = S_TARGET_INNER;
-            holder.value = holder.pointer;
+         // If we are currently skipping an unregistered  branch (skipDepth > 0)
+         if (holder.skipDepth > 0) {
+            holder.xmlState = S_UNREGIST_BRANCH;
+            if (hTagName == holder.skipName) holder.skipDepth++;
             return;
          }
 
-         // case continue to read next attr
-         holder.xmlState = S_TARGET_ATTR;
-         holder.attrName = holder.pointer;
-         return ;
+         // Record skipName and enter skip mode
+         if (!holder.currentNode.hasChild(hTagName)) {
+            holder.xmlState = S_UNREGIST_BRANCH;         
+            holder.skipName = hTagName;
+            holder.skipDepth = 1;
+            return;
+         }
+
+         // Case: registered node
+         holder.currentNode = holder.currentNode.getChild(hTagName);
+         // If this is a target node, send the OPEN_TAG callback
+         if (! holder.currentNode.isTarget) {
+            holder.xmlState = S_INTAG;
+            return;
+         } 
+
+         holder.xmlState = S_TARGET_INTAG;
+         if (!holder.currentNode.handler.call(
+            holder.currentNode.idToken, holder,
+            EV_OPEN_TAG,
+            holder.tagName, holder.tagNameEnd,
+            0, 0)) {
+            // If the handler returns false, skip to next XML
+            HD_NEXT_XML(holder);
+            return;
+         }
+
+         // Record target distance log
+         int targetStart = holder.tagName; // byte offset of '<target'
+         if (holder.logSize < holder.logDistances.length) {
+            long dist;
+            if (holder.lastTargetOffset >= 0) {
+               dist = targetStart - holder.lastTargetOffset;
+            } else if (holder.rootOffset >= 0) {
+               dist = targetStart - holder.rootOffset;
+            } else {
+               dist = 0;
+            }
+            holder.logDistances[holder.logSize] = dist;
+            holder.logHashes[holder.logSize] = hTagName;
+            holder.logSize++;
+            holder.lastTargetOffset = targetStart;
+         }
+
+         // Trigger prediction after first target if not already active
+         if (!holder.predictionActive && holder.logSize == 1) {
+            // Build partial log with what we have so far
+            long[] partialDist = new long[holder.logSize];
+            long[] partialHash = new long[holder.logSize];
+            System.arraycopy(holder.logDistances, 0, partialDist, 0, holder.logSize);
+            System.arraycopy(holder.logHashes, 0, partialHash, 0, holder.logSize);
+            xmlBluePrint.LogEntry partialLog = new xmlBluePrint.LogEntry(partialDist, partialHash, holder.logSize);
+
+            // Find best matching log from blueprint
+            xmlBluePrint.LogEntry bestMatch = xmlBluePrint.findBestMatch(partialLog);
+            if (bestMatch != null && bestMatch.size > holder.logSize) {
+               holder.predictedLog = bestMatch;
+               holder.predictedIndex = holder.logSize; // start predicting from next target
+               holder.predictionActive = true;
+               holder.predictionValid = true;
+            }
+         }
+
+         // If prediction active, verify prediction
+         if (holder.predictionActive && holder.predictionValid
+               && holder.predictedIndex < holder.predictedLog.size) {
+            verifyPrediction(holder, targetStart, hTagName);
+         }
+         return;
       }
    };
+
+   private static final CELL HD_BEGIN_ATTR = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.attrName = holder.pointer++;
+         holder.xmlState = S_ATTR; 
+      }
+   };   
+
+   private static final CELL HD_NOVAL_ATTR = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.xmlState = S_TARGET_INTAG; 
+         holder.attrEnd = holder.pointer;
+
+         // callback to user
+         if (!holder.currentNode.handler.call(holder.currentNode.idToken, holder, EV_ATTR, holder.attrName, holder.attrEnd, 0, 0)){
+            HD_NEXT_XML(holder);
+         }
+      }
+   };
+      
+   private static final CELL HD_TO_TARGET_INNER = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.xmlState = S_TARGET_INNER; 
+         holder.value = ++holder.pointer;
+      }
+   };   
+
+   private static final CELL HD_SLASH_INTARGET = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         if ('>' != holder.jobStart[holder.cp][++holder.pointer]) {
+            if (! errorHandler.call(errorToken, holder, EV_EXPECTED_END, 0,0,0,0)) {
+               HD_NEXT_XML(holder);
+               return;
+            }
+         } 
+         holder.pointer++;
+         if (! holder.currentNode.handler.call(holder.currentNode.idToken, holder, EV_CLOSE_TAG, 0, 0, 0, 0)) {
+            HD_NEXT_XML(holder);
+            return;
+         } 
+         holder.currentNode = holder.currentNode.parent;
+         holder.xmlState = (holder.currentNode.isTarget)?S_TARGET_INNER: S_INNER;    
+         holder.value = holder.pointer;
+         return;   
+      }
+   };      
+
+   private static final CELL HD_TO_INNER = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         if ('/' == holder.jobStart[holder.cp][holder.pointer-1]) {
+            holder.currentNode = holder.currentNode.parent;
+            holder.xmlState = (holder.currentNode.isTarget)?S_TARGET_INNER: S_INNER;    
+            holder.value = holder.pointer;
+            return;   
+         }
+         holder.xmlState = S_INNER; 
+         holder.pointer++;
+      }
+   };   
 
    private static final CELL HD_VAL_ATTR = new CELL() {
       @Override
       public void call(xmlBluePrintHolder holder) {
          holder.attrEnd = holder.pointer++;
-         holder.xmlState = S_VAL_ATTR;
          holder.value = holder.pointer;
+         holder.xmlState = S_VAL_ATTR;
          return;
       }
    };
@@ -1256,7 +1335,7 @@ Usage Instructions
       }
    };
 
-   /**
+/**
     * Handles the end of an attribute value in XML parsing.
     * Called when we've finished reading an attribute value (after the = sign)
     * and encounter a delimiter (space, >, /, ", or ').
@@ -1308,7 +1387,7 @@ Usage Instructions
          }
 
          // case continue to read next attr
-         holder.xmlState = S_TARGET_ATTR;
+         holder.xmlState = S_ATTR;
          holder.attrName = holder.pointer;
          return ;
       }
@@ -1400,164 +1479,10 @@ Usage Instructions
       @Override
       public void call(xmlBluePrintHolder holder) {
          holder.tagName = holder.pointer++;
-         holder.xmlState = S_TAG_OPEN;
+         holder.xmlState = S_TAG_BEGIN;
          return ;
       }
    };     
-
-   private static final CELL HD_OPENTAG = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         // Step 1: Mark the end of the tag name (current pointer points to the first char after the tag name)
-         holder.tagNameEnd = holder.pointer++;
-         
-         // Step 2: Check if the tag is closed with '>' or self-closed with '/>'
-         boolean isClosed = holder.jobStart[holder.cp][holder.pointer - 1] == '>';
-         boolean isSelfClosed = holder.jobStart[holder.cp][holder.pointer - 2] == '/';
-         
-         // Adjust tagNameEnd for self-closing tags (remove the '/')
-         if (isSelfClosed) {
-            holder.tagNameEnd--;
-         }
-
-         // Compute hash for the tag name
-         long hTagName = hash(holder.jobStart[holder.cp], holder.tagName, holder.tagNameEnd);
-         
-
-        // Step 3: If we are currently skipping an unregistered branch (skipDepth > 0)
-        if (holder.skipDepth > 0) {
-            // If this tag matches the skipName, increment depth (unless self-closing)
-            if (hTagName == holder.skipName && !isSelfClosed) {
-                holder.skipDepth++;
-            }
-            holder.xmlState = S_UNREGIST_BRANCH;
-            return;
-        }
-
-        // Step 3b: Not in skip mode, but this is an unregistered tag
-        // Record skipName and enter skip mode
-        if (!holder.currentNode.hasChild(hTagName)) {
-            holder.skipName = hTagName;
-            holder.skipDepth = 1;
-            holder.xmlState = S_UNREGIST_BRANCH;
-            return;
-        }
-
-         // Step 4: Check if the current node has a child with this tag name (registered path)
-         if (holder.currentNode.hasChild(hTagName)) {
-            // Case: registered node
-            holder.currentNode = holder.currentNode.getChild(hTagName);
-            
-            // Step 5: If this is a target node, send the OPEN_TAG callback
-            if (holder.currentNode.isTarget) {
-               if (!holder.currentNode.handler.call(
-                  holder.currentNode.idToken, holder,
-                  EV_OPEN_TAG,
-                  holder.tagName, holder.tagNameEnd,
-                  0, 0)) {
-                  // If the handler returns false, skip to next XML
-                  HD_NEXT_XML(holder);
-                  return;
-               }
-
-               // Record target distance log
-               int targetStart = holder.tagName; // byte offset of '<target'
-               if (holder.logSize < holder.logDistances.length) {
-                  long dist;
-                  if (holder.lastTargetOffset >= 0) {
-                     dist = targetStart - holder.lastTargetOffset;
-                  } else if (holder.rootOffset >= 0) {
-                     dist = targetStart - holder.rootOffset;
-                  } else {
-                     dist = 0;
-                  }
-                  holder.logDistances[holder.logSize] = dist;
-                  holder.logHashes[holder.logSize] = hTagName;
-                  holder.logSize++;
-                  holder.lastTargetOffset = targetStart;
-               }
-
-               // Trigger prediction after first target if not already active
-               if (!holder.predictionActive && holder.logSize == 1) {
-                  // Build partial log with what we have so far
-                  long[] partialDist = new long[holder.logSize];
-                  long[] partialHash = new long[holder.logSize];
-                  System.arraycopy(holder.logDistances, 0, partialDist, 0, holder.logSize);
-                  System.arraycopy(holder.logHashes, 0, partialHash, 0, holder.logSize);
-                  xmlBluePrint.LogEntry partialLog = new xmlBluePrint.LogEntry(partialDist, partialHash, holder.logSize);
-
-                  // Find best matching log from blueprint
-                  xmlBluePrint.LogEntry bestMatch = xmlBluePrint.findBestMatch(partialLog);
-                  if (bestMatch != null && bestMatch.size > holder.logSize) {
-                     holder.predictedLog = bestMatch;
-                     holder.predictedIndex = holder.logSize; // start predicting from next target
-                     holder.predictionActive = true;
-                     holder.predictionValid = true;
-                  }
-               }
-
-               // If prediction active, verify prediction
-               if (holder.predictionActive && holder.predictionValid
-                   && holder.predictedIndex < holder.predictedLog.size) {
-                  verifyPrediction(holder, targetStart, hTagName);
-               }
-            }
-            
-            // Step 6: Handle different tag closing scenarios
-            if (isClosed) {
-               // Case: tag closed with '>'
-               if (holder.currentNode.isTarget) {
-                  // For target tags, we need to capture inner content
-                  holder.xmlState = S_TARGET_INNER;
-                  holder.value = holder.pointer;
-               } else {
-                  // For non-target tags, we process inner content
-                  holder.xmlState = S_INNER;
-               }
-            } else if (isSelfClosed) {
-               // Case: self-closed tag '/>'
-               // Send CLOSE_TAG callback for target nodes
-               if (holder.currentNode.isTarget) {
-                  if (!holder.currentNode.handler.call(
-                     holder.currentNode.idToken, holder, 
-                     EV_CLOSE_TAG, 
-                     0, 0, 0, 0)) {
-                     // If handler returns false, skip to next XML
-                     HD_NEXT_XML(holder);
-                     return;
-                  }
-               }
-               // Move back to parent node
-               holder.currentNode = holder.currentNode.parent;
-               // Set appropriate state based on whether parent is a target
-               if (holder.currentNode.isTarget) {
-                  holder.xmlState = S_TARGET_INNER;
-                  holder.value = holder.pointer;
-               } else {
-                  holder.xmlState = S_INNER;
-               }
-            } else {
-               // Case: tag has attributes (ends with space or other)
-               if (holder.currentNode.isTarget) {
-                  // For target tags, we need to capture attributes
-                  holder.xmlState = S_TARGET_ATTR;
-                  holder.attrName = holder.pointer; // Start of attribute name
-                  holder.valEnd = holder.value = holder.attrName;
-               } else {
-                  // For non-target tags, just look for '>'
-                  holder.xmlState = S_ATTR;
-               }
-            }
-         } else {
-            // Step 7: Case: unregistered node (not in the registered path)
-            // Record skipName and enter skip mode
-            holder.skipName = hTagName;
-            holder.skipDepth = 1;
-            holder.xmlState = S_UNREGIST_BRANCH;
-         }
-         return;
-      }
-   };
 
    private static final CELL HD_TAG_CLOSE = new CELL() {
       @Override
@@ -1589,6 +1514,7 @@ Usage Instructions
          holder.xmlState = S_INNER;
       }
    };
+   
    private static final CELL HD_LT = new CELL() {
       @Override
       public void call(xmlBluePrintHolder holder) {
@@ -1929,8 +1855,6 @@ Usage Instructions
       TOC[S_ENC_CHARSET]['\''] = HD_ENC_Q_VALUE; 
       TOC[S_ENC_CHARSET]['"'] = HD_ENC_Q_VALUE; 
 
-
-
       /* 
          S_HEADER_ATTR : <?xml[space] : expected (nN : HD_HEADER_N)
             (cC : HD_HEADER_C)   // <-- เริ่มต้นเส้นทาง charset ที่นี่
@@ -1999,31 +1923,81 @@ Usage Instructions
       TOC[S_CHR_CHARSET]['='] = HD_ENC_VALUE;  // ชี้ไปยังการประมวลผลค่าเดียวกับ encoding
 
       /* 
-         S_HEAD_CHAR : <[_a-zA-Z] : expected ( > : HD_CHK_ROOT)
+         S_ROOT_POSIBLE : <[_a-zA-Z] : expected ( > : HD_ROOT_POSIBLE)
          anything else : HD_SAMESTATE
        */
-      TOC[S_HEAD_CHAR]['>'] = HD_CHK_ROOT; // check if this tag is root
+      TOC[S_ROOT_POSIBLE]['>'] = HD_ROOT_POSIBLE; // check if this tag is root
 
       /* 
-         S_ROOT_OPEN : <ROOT : expected ( space : HD_ROOT_OPEN)
-            ( > : HD_ROOT_OPEN)
+         S_ROOT_BEGIN : <root : expected ( space : HD_ROOT_TAGNAME)
+            (/ : HD_ROOT_TAGNAME)
+            ( > : HD_ROOT_TAGNAME)
          anything else : HD_SAMESTATE
        */
-      TOC[S_ROOT_OPEN][' '] = HD_ROOT_OPEN;
-      TOC[S_ROOT_OPEN]['>'] = HD_ROOT_OPEN;
+      TOC[S_ROOT_BEGIN]['>'] = HD_ROOT_TAGNAME;
+      TOC[S_ROOT_BEGIN]['/'] = HD_ROOT_TAGNAME;
+      TOC[S_ROOT_BEGIN][' '] = HD_ROOT_TAGNAME;
+      TOC[S_ROOT_BEGIN]['\t'] = HD_ROOT_TAGNAME;    
+      TOC[S_ROOT_BEGIN]['\r'] = HD_ROOT_TAGNAME;    
+      TOC[S_ROOT_BEGIN]['\n'] = HD_ROOT_TAGNAME;        
+
+      /*
+         S_TAG_BEGIN : <tag : expected (> : HD_TAGNAME)
+            (/ : HD_TAGNAME)
+            (space : HD_TAGNAME)
+         anything else : HD_SAMESTATE
+       */
+      TOC[S_TAG_BEGIN]['>'] = HD_TAGNAME;      
+      TOC[S_TAG_BEGIN]['/'] = HD_TAGNAME;      
+      TOC[S_TAG_BEGIN][' '] = HD_TAGNAME;    
+      TOC[S_TAG_BEGIN]['\t'] = HD_TAGNAME;    
+      TOC[S_TAG_BEGIN]['\r'] = HD_TAGNAME;    
+      TOC[S_TAG_BEGIN]['\n'] = HD_TAGNAME;      
+      
+      /*
+         S_TARGET_INTAG : <target : expected (> : HD_TO_TARGET_INNER)
+            (/ : HD_SLASH_INTARGET)
+            (space : HD_SAMESTATE)
+         anything else : HD_BEGIN_ATTR
+       */      
+      for (int i = 127; i>=0; i--) TOC[S_TARGET_INTAG][i] = HD_BEGIN_ATTR;
+      TOC[S_TARGET_INTAG]['>'] = HD_TO_TARGET_INNER;      
+      TOC[S_TARGET_INTAG]['/'] = HD_SLASH_INTARGET;    
+      TOC[S_TARGET_INTAG][' '] = HD_SAMESTATE;    
+      TOC[S_TARGET_INTAG]['\t'] = HD_SAMESTATE;    
+      TOC[S_TARGET_INTAG]['\r'] = HD_SAMESTATE;    
+      TOC[S_TARGET_INTAG]['\n'] = HD_SAMESTATE;   
+      
+      /*
+         S_INTAG : <target : expected (> : HD_TO_INNER)
+         anything else : HD_SAMESTATE
+       */      
+      for (int i = 127; i>=0; i--) TOC[S_TARGET_INTAG][i] = HD_SAMESTATE;
+      TOC[S_INTAG]['>'] = HD_TO_INNER;      
+
+      /*
+         S_SLASH : </ : expected (> : HD_ENDTAG_NAME)
+            (space : HD_ENDTAG_NAME)
+         anything else : HD_SAMESTATE
+       */
+      TOC[S_SLASH]['>'] = HD_ENDTAG_NAME;      
+      TOC[S_SLASH][' '] = HD_ENDTAG_NAME;  
+      TOC[S_SLASH]['\t'] = HD_ENDTAG_NAME;  
+      TOC[S_SLASH]['\r'] = HD_ENDTAG_NAME;  
+      TOC[S_SLASH]['\n'] = HD_ENDTAG_NAME;  
 
       /* 
-         S_TARGET_ATTR : <tag : expected ( space : HD_NOVAL_ATTR)
+         S_ATTR : <tag : expected ( space : HD_NOVAL_ATTR)
             ( > : HD_NOVAL_ATTR)
             ( = : HD_VAL_ATTR)
          anything else : HD_SAMESTATE
        */
-      TOC[S_TARGET_ATTR][' '] = HD_NOVAL_ATTR;
-      TOC[S_TARGET_ATTR]['\t'] = HD_NOVAL_ATTR;
-      TOC[S_TARGET_ATTR]['\r'] = HD_NOVAL_ATTR;
-      TOC[S_TARGET_ATTR]['\n'] = HD_NOVAL_ATTR;
-      TOC[S_TARGET_ATTR]['>'] = HD_NOVAL_ATTR;      
-      TOC[S_TARGET_ATTR]['='] = HD_VAL_ATTR;
+      TOC[S_ATTR][' '] = HD_NOVAL_ATTR;
+      TOC[S_ATTR]['\t'] = HD_NOVAL_ATTR;
+      TOC[S_ATTR]['\r'] = HD_NOVAL_ATTR;
+      TOC[S_ATTR]['\n'] = HD_NOVAL_ATTR;
+      TOC[S_ATTR]['>'] = HD_NOVAL_ATTR;      
+      TOC[S_ATTR]['='] = HD_VAL_ATTR;
 
       /* 
          S_VAL_ATTR : attr= : expected ( ' : HD_VAL_QUOTE)
@@ -2133,38 +2107,10 @@ Usage Instructions
       TOC[S_PI]['>'] = HD_INNER;
 
       /*
-         S_TAG_OPEN : <tagName : expected (> : HD_OPENTAG)
-            (space : HD_OPENTAG)
-         anything else : HD_SAMESTATE
-       */
-      TOC[S_TAG_OPEN]['>'] = HD_OPENTAG;      
-      TOC[S_TAG_OPEN][' '] = HD_OPENTAG;    
-      TOC[S_TAG_OPEN]['\t'] = HD_OPENTAG;    
-      TOC[S_TAG_OPEN]['\r'] = HD_OPENTAG;    
-      TOC[S_TAG_OPEN]['\n'] = HD_OPENTAG;    
-
-      /*
-         S_ATTR : <tag(space) : expected (> : HD_TAG_CLOSE)
-         anything else : HD_SAMESTATE
-       */
-      TOC[S_ATTR]['>'] = HD_TAG_CLOSE;
-
-      /*
-         S_INNER : <tag> : expected (< : HD_TAG_CLOSE)
+         S_INNER : <tag> : expected (< : HD_LT)
          anything else : HD_SAMESTATE
        */
       TOC[S_INNER]['<'] = HD_LT;      
-
-      /*
-         S_SLASH : </ : expected (> : HD_ENDTAG_NAME)
-            (space : HD_ENDTAG_NAME)
-         anything else : HD_SAMESTATE
-       */
-      TOC[S_SLASH]['>'] = HD_ENDTAG_NAME;      
-      TOC[S_SLASH][' '] = HD_ENDTAG_NAME;  
-      TOC[S_SLASH]['\t'] = HD_ENDTAG_NAME;  
-      TOC[S_SLASH]['\r'] = HD_ENDTAG_NAME;  
-      TOC[S_SLASH]['\n'] = HD_ENDTAG_NAME;  
 
       /*
          S_GT_ONLY : </tag(space) : expected (> : HD_ENDTAG_NAME)
