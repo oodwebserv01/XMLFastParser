@@ -1,4 +1,11 @@
 test/databak/
 test/datas/
+Lab/
 *.class
 xmlFastParser/xmlFastParser/*.class
+.gradle/
+build/
+*.gradle*
+**/*.gradle*
+**/.gradle/**
+**/.gradle_*

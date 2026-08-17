@@ -1,0 +1,174 @@
+XML2TXT - Developer Manual
+===========================
+
+1. เป้าหมายของโปรแกรม (Program Goals)
+--------------------------------------
+XML2TXT เป็นโปรแกรมแปลงไฟล์ XML และ ZIP เป็นรูปแบบ Text (Tab-delimited/CSV-like)
+โดยใช้ไลบรารี xmlFastParser สำหรับการ parse XML แบบ high-performance (SAX-based, multi-threaded)
+
+จุดประสงค์หลัก:
+- อ่านไฟล์ XML/.zip จำนวนมากจาก source directory แบบ recursive
+- ดึงข้อมูลตามโครงสร้างที่กำหนดใน .bp (blueprint) file
+- รองรับการดึง attribute (@) และ inner text (#) ของ XML element
+- ประมวลผลแบบ multi-threaded เพื่อประสิทธิภาพสูง
+- เขียนผลลัพธ์เป็นไฟล์ text แยกตาม thread และ timestamp
+
+
+2. โครงสร้างคำสั่ง (Command Line Arguments)
+--------------------------------------------
+java XML2TXT [-p path/file.bp] [-s sourcePath] [-d destPath] [-t threadCount]
+
+พารามิเตอร์:
+  -p, --pathBP      : พาธของไฟล์ .bp (blueprint configuration) - required
+  -s, --sourcePath  : โฟลเดอร์ต้นทางของไฟล์ .xml/.zip (default: ".")
+  -d, --destPath    : โฟลเดอร์ปลายทางสำหรับไฟล์ output (default: ".")
+  -t, --threadCount : จำนวน thread สำหรับการประมวลผล (default: 1)
+
+
+3. รูปแบบไฟล์ .bp (Blueprint Configuration)
+---------------------------------------------
+ไฟล์ .bp กำหนดโครงสร้างข้อมูลที่ต้องการดึงจาก XML
+
+รูปแบบ:
+  file:filename.xml           # รายชื่อไฟล์ที่ต้องการประมวลผล (optional, สำหรับ filter)
+  entity:/path/to/element     # XML element path ที่เป็น "entity" (record unit)
+  -/path/to/element@attrName  # ดึง attribute (ขึ้นต้นด้วย - และ @)
+  -/path/to/element#          # ดึง inner text (ขึ้นต้นด้วย - และ #)
+
+ตัวอย่าง:
+  file:transaction.xml
+  entity:/Transaction/Invoid
+  -/Transaction/Invoid@SN
+  -/Transaction/Invoid/Saler/PersonID#
+  -/Transaction/Invoid/Buyer/PersonID#
+
+
+4. ขั้นตอนการทำงานหลัก (Main Workflow Steps)
+-----------------------------------------------
+
+Step 1: Parse Arguments (ParseArguments)
+  - อ่าน command line arguments
+  - Validate และเก็บค่าใน Config object
+  - Exit ถ้ามี argument ผิดพลาด
+
+Step 2: List All Files (ListAllFile)
+  - Scan sourcePath แบบ recursive
+  - รวบรวมเฉพาะไฟล์ .xml และ .zip
+  - Return comma-separated string ของ absolute paths
+
+Step 3: Read Blueprint File (ReadBPFile)
+  - อ่านไฟล์ .bp บรรทัดต่อบรรทัด
+  - Parse 3 ประเภท: file:, entity:, - (column spec)
+  - สร้าง BPConfig object ที่มี:
+    - files: List<String> - ไฟล์เป้าหมาย
+    - entities: List<String> - entity paths
+    - columns: List<ColumnSpec> - column specifications
+
+Step 4: Parse Column Specification (parseColumnSpec)
+  - วิเคราะห์ column spec string
+  - ระบุ type: "@" (attribute), "#" (inner text), "entity" (entity path)
+  - แยก path และ attribute name (ถ้ามี)
+  - สร้าง ColumnSpec object พร้อม columnIndex
+
+Step 5: Register Paths with xmlBluePrint (RegisterPathsWithXmlBluePrint)
+  - ลงทะเบียน entity paths ด้วย xmlBluePrint.regist()
+    - ใช้ xmlBluePrintCall callback สำหรับ EV_OPEN_TAG (1) และ EV_CLOSE_TAG (2)
+  - ลงทะเบียน column paths (attributes และ inner text)
+    - ใช้ callback สำหรับ EV_ATTR (3) และ EV_INNER_TEXT (4)
+    - ดึงค่าจาก holder.getByteBuffer() ตาม offset (nameBegin, nameEnd, valueBegin, valueEnd)
+  - ตั้งค่า thread count: xmlBluePrint.setThreadCount(threadCount)
+
+Step 6: Process Files (ProcessFiles)
+  - เรียก ListAllFile อีกครั้งเพื่อดูไฟล์ที่จะประมวลผล
+  - Submit แต่ละไฟล์เข้า xmlBluePrint job queue (xmlBluePrint.pushJob)
+  - เริ่มการประมวลผล: xmlBluePrint.run()
+  - รอจนเสร็จสิ้น (poll xmlBluePrint.isReadyToDown())
+  - Shutdown: xmlBluePrint.shutdown()
+
+Step 7: Write Output (WriteOutputFile)
+  - สร้างชื่อไฟล์ output: {fileType}_{threadNo:02d}_{timestamp}.txt
+  - สร้าง pending file ชั่วคราว: {fileType}_{threadNo:02d}_pending
+  - เขียนข้อมูลลง pending file
+  - Rename pending -> final output filename
+  - จัดการ rename ไฟล์ source ที่ประมวลผลแล้ว (.xml -> xml{name}.bak, .zip -> zip{name}.bak)
+
+
+5. คลาสและเมธอดสำคัญ (Key Classes & Methods)
+-----------------------------------------------
+
+XML2TXT.Config
+  - เก็บ configuration: pathBP, sourcePath, destPath, threadCount
+
+XML2TXT.ColumnSpec
+  - path: XML path (เช่น /Transaction/Invoid@SN)
+  - type: "@" | "#" | "entity"
+  - attrName: ชื่อ attribute (ถ้า type="@")
+  - columnIndex: ลำดับคอลัมน์ใน output
+
+XML2TXT.BPConfig
+  - files: List<String> - จาก "file:" lines
+  - entities: List<String> - จาก "entity:" lines
+  - columns: List<ColumnSpec> - จาก "-" lines
+
+Methods:
+  - ParseArguments(args) -> Config
+  - ListAllFile(folder) -> String (comma-separated paths)
+  - ReadBPFile(pathBP) -> BPConfig
+  - parseColumnSpec(spec, index) -> ColumnSpec
+  - RegisterPathsWithXmlBluePrint(config, threadCount) -> void
+  - ProcessFiles(sourcePath, destPath, threadCount, config) -> void
+  - GenerateOutputFilename(threadNo, fileType, timestamp) -> String
+  - GeneratePendingFilename(fileType, threadNo) -> String
+  - RenameProcessedFile(originalPath) -> boolean
+  - WriteOutputFile(threadNo, fileId, data) -> void
+
+
+6. xmlFastParser Integration (External Library)
+------------------------------------------------
+ใช้ class จาก xmlFastParser package:
+  - xmlBluePrint: main parser engine
+    - regist(path, callback, userData) : ลงทะเบียน handler
+    - setThreadCount(n) : ตั้งค่า thread pool size
+    - pushJob(byte[], len, fileName, nameLen) : submit job
+    - run() : เริ่มประมวลผล
+    - isReadyToDown() : ตรวจสอบการเสร็จสิ้น
+    - shutdown() : ปิด parser
+  - xmlBluePrintCall: callback interface
+    - call(idToken, holder, event, nameBegin, nameEnd, valueBegin, valueEnd) -> boolean
+  - xmlBluePrintHolder: data holder
+    - getByteBuffer() -> byte[] : raw XML bytes
+
+Event Types:
+  - 1 = EV_OPEN_TAG
+  - 2 = EV_CLOSE_TAG
+  - 3 = EV_ATTR
+  - 4 = EV_INNER_TEXT
+
+
+7. Output File Naming Convention
+---------------------------------
+Output:    {fileType}_{threadNo:02d}_{yyyyMMddHHmmss}.txt
+Pending:   {fileType}_{threadNo:02d}_pending
+Backup:    xml{originalName}.bak (สำหรับ .xml)
+           zip{originalName}.bak (สำหรับ .zip)
+
+
+8. Error Handling
+-----------------
+- Invalid arguments -> System.exit(1) พร้อม error message
+- Missing .bp file -> System.exit(1)
+- File I/O errors -> try-catch พร้อม error logging
+- Rename conflicts -> warning, return false
+- xmlBluePrint errors -> simulated (TODO: real implementation)
+
+
+9. TODO / Future Enhancements
+------------------------------
+- [ ] Implement actual xmlBluePrint.pushJob() calls
+- [ ] Implement xmlBluePrint.run() and wait loop
+- [ ] Thread-safe buffer management per thread
+- [ ] Output file writing with proper buffering
+- [ ] Handle zip file extraction
+- [ ] Add progress reporting
+- [ ] Support for custom delimiters
+- [ ] Config file support (alternative to CLI args)
