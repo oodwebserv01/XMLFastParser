@@ -1,0 +1,123 @@
+** ไฟล์นี้จะเป็น ไกด์ไลน์ให้ ด้วยการรวบรวม อัลกอริทึ่มที่สำคัญ
+
+การ อ่าน .bp  และการนำไป ลงทะเบียน 
+
+------ การ อ่าน .bp ------
+
+*** โจทย์ *** 
+file:Invoids
+entity:/rsm:SupplyChainTradeTransaction
+- /rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeAgreement/ram:SellerTradeParty/ram:SpecifiedTaxRegistration/ram:ID@schemeID
+- /././././ram:ID#
+- /././././ram:ID@schemeType
+- /././ram:BuyerTradeParty/ram:SpecifiedTaxRegistration/ram:ID@schemeID
+
+file:Items
+entity:/rsm:SupplyChainTradeTransaction/ram:IncludedSupplyChainTradeLineItem       
+- /rsm:SupplyChainTradeTransaction/ram:IncludedSupplyChainTradeLineItem/ram:AssociatedDocumentLineDocument/ram:LineID#
+- /././ram:SpecifiedTradeProduct/ram:Name#
+- /././ram:SpecifiedLineTradeDelivery/ram:BilledQuantity@unitCode
+- /./././ram:BilledQuantity@TEXT
+
+*** อธิบายสัญลักษณ์ *** 
+    {} : hashMAP
+    [] : arrayList
+
+*** ผลลัพธ์ ที่ต้องการ ***
+  fileOPs = {
+    hash("Invoids"):   
+        { fileName:"Invoids"
+        , countCol:5
+        , entity:"/rsm:SupplyChainTradeTransaction"
+        , columns:{
+            hash("/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeAgreement/ram:SellerTradeParty/ram:SpecifiedTaxRegistration/ram:ID"): { 
+              attr:{ hash("schemeID"):1, hash("schemeType"):3 }
+            , inner:2
+            }
+          , hash("/rsm:SupplyChainTradeTransaction/ram:ApplicableHeaderTradeAgreement/ram:BuyerTradeParty/ram:SpecifiedTaxRegistration/ram:ID") {
+              attr:{ hash("schemeID"):4 }
+            , inner:-1
+            }        
+          }
+        , asmblyLine:[...]    
+        }
+  , hash("Items"):   
+        { fileName:"Items"
+        , countCol:5
+        , entity:"/rsm:SupplyChainTradeTransaction/ram:IncludedSupplyChainTradeLineItem"
+        , columns:{
+            hash("rsm:SupplyChainTradeTransaction/ram:IncludedSupplyChainTradeLineItem/ram:AssociatedDocumentLineDocument/ram:LineID") {
+              attr:{}
+            , inner:1
+            }
+          , hash("/rsm:SupplyChainTradeTransaction/ram:IncludedSupplyChainTradeLineItem/ram:SpecifiedTradeProduct/ram:Name") {
+            , attr:{}
+            , inner:2
+            }        
+          , hash("rsm:SupplyChainTradeTransaction/ram:IncludedSupplyChainTradeLineItem/ram:SpecifiedLineTradeDelivery/ram:BilledQuantity") {
+              attr:{ hash("unitCode"):3, hash("TEXT"):4 }
+            , inner:-1
+            }        
+          }
+        , asmblyLine:[...]    
+        }
+  }
+
+*** หลักการทำงาน *** 
+  สร้างโครงสร้างข้อมูล ตามตัวอย่างข้างบน 
+    function addColumn(file, string) {
+      ถ้า string เป็น path# 
+        ลบ # เหลือแค่ path 
+        addColInner(file, path)
+      ถ้า string เป็น path@attr 
+        split เป็น path และ attr
+        addColAttr(file, path, attr)
+    }
+    function addColInner(file, path) {
+        hPath = hash(path);
+        columns = file.get(columns);
+        column = columns.get(hPath);
+        if null == column {
+            column = new  { attr:{}, inner:-1 }; 
+            columns.add(hPath, column);  //เพิ่ม คอลั่มน์ใหม่ให้ พาท
+        }
+        column.get(inner).set(file.countCol++); //เซ็ตหมายเลขคอลั่มน์ ให้ inner
+    }
+    function addColAttr(file, path, attr) {
+        hPath = hash(path);
+        columns = file.get(columns);
+        column = columns.get(hPath);
+        if null == column {
+            column = new  { attr:{}, inner:-1 }; 
+            columns.add(hPath, column); //เพิ่ม คอลั่มน์ใหม่ให้ พาท
+        }   
+        hAttr = hash(attr)
+        column.get(attr).add(hAttr, file.countCol++); //เพิ่ม attr พร้อมหมายเลขคอลั่มน์   
+    }
+
+
+------ การลงทะเบียน ------
+    forall idFile -> file in files {
+        bluePrint.regist(file.entity, habdlerEntity, idFile ); // 
+        forall column in file.columns {
+            hashMAP idToken = new { file:idFile, column:(column.attr) };
+            bluePrint.regist(column.path, habdlerColumn, idToken );
+        }
+    }
+    
+------ การ habdlerEntity ------
+    idFile = idToken;
+    file = fileOPs.get(idFile);
+    
+    ถ้าเป็น EV_TAG_OPEN เคลียรค่าใน file.asmblyLine ให้เป็น ค่า default
+    ถ้าเป็น EV_TAG_CLOSE เขียนข้อมูลจาก file.asmblyLine ลงใน stringBuffer ที่เก็บ 1,000 บรรทัดก่อนเขียนลงไฟล์
+
+------ การ habdlerColumn ------    
+    idFile = idToken.get(file);
+    file = fileOPs.get(idFile);
+
+    hMapAttr = idToken.get(attr);
+
+    ถ้าเป็น EV_ATTR และ value เป็น empty ใส่ "1" เข้าไปใน file.asmblyLine[hMapAttr.get(hash("attrName"))]
+    ถ้าเป็น EV_ATTR และมี value ใส่ value as String เข้าไปใน file.asmblyLine[hMapAttr.get(hash("attrName"))]
+    ถ้าเป็น EV_INNER ให้ file.asmblyLine[hMapAttr.get(hash("attrName"))].add( valsue as string)

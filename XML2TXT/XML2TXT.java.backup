@@ -615,314 +615,352 @@ public class XML2TXT {
     }
 
     public static void RegisterPathsWithXmlBluePrint(BPConfig config, List<ThreadContext> threadContexts, xmlBluePrint bp) {
-        // For each thread context
+        // Precompute grouped column specs
+        Map<String, ElementPathGroup> groupedColumnSpecs = groupColumnSpecs(config);
+
+        // Register column callbacks: one per elementPath per thread
         for (ThreadContext ctx : threadContexts) {
-            // For each file in fileOPs
-            for (Map.Entry<Integer, FileOp> entry : config.fileOPs.entrySet()) {
-                Integer fileId = entry.getKey();
-                FileOp fileOp = entry.getValue();
-
-                // Register entity handler for this file
-                String entityPath = fileOp.entity;
-                // Handle root entity (empty path)
-                if (entityPath == null || entityPath.isEmpty()) {
-                    entityPath = "/"; // Root path
-                }
-                // Ensure path starts with '/' for xmlBluePrint
-                if (!entityPath.startsWith("/")) {
-                    entityPath = "/" + entityPath;
-                }
-
-                // Create idToken for entity handler: {threadContext, fileId}
-                class EntityCallbackContext {
-                    private final ThreadContext threadContext;
-                    private final Integer fileId;
-
-                    public EntityCallbackContext(ThreadContext threadContext, Integer fileId) {
-                        this.threadContext = threadContext;
-                        this.fileId = fileId;
+            for (Map.Entry<String, ElementPathGroup> entry : groupedColumnSpecs.entrySet()) {
+                String elementPath = entry.getKey();
+                ElementPathGroup group = entry.getValue();
+                CallbackContext cbCtx = new CallbackContext(ctx, elementPath);
+                bp.regist(elementPath, new xmlBluePrintCall() {
+                    @Override
+                    public boolean call(Object idToken, xmlBluePrintHolder holder, int event, int nameBegin, int nameEnd, int valueBegin, int valueEnd) {
+                        CallbackContext cbCtx = (CallbackContext) idToken;
+                        ThreadContext ctx = cbCtx.getThreadContext();
+                        String elementPath = cbCtx.getElementPath();
+                        ElementPathGroup group = groupedColumnSpecs.get(elementPath);
+                        if (group == null) {
+                            return true; // should not happen
+                        }
+                        if (event == 3) { // EV_ATTR
+                            // Extract attribute name
+                            byte[] attrNameBytes = new byte[nameEnd - nameBegin];
+                            System.arraycopy(holder.getByteBuffer(), nameBegin, attrNameBytes, 0, nameEnd - nameBegin);
+                            String attrName = new String(attrNameBytes, java.nio.charset.StandardCharsets.UTF_8);
+                            List<ColumnSpec> matchingCols = group.attrMap.get(attrName);
+                            if (matchingCols != null) {
+                                for (ColumnSpec col : matchingCols) {
+                                    // Check if the current fileType (set in entity handler) matches col.fileTypeIndex
+                                    String currentFileType = ctx.getCurrentFileType();
+                                    if (currentFileType != null &&
+                                        currentFileType.equals(config.fileTypes.get(col.fileTypeIndex))) {
+                                        // Extract attribute value
+                                        byte[] attrValueBytes = new byte[valueEnd - valueBegin];
+                                        System.arraycopy(holder.getByteBuffer(), valueBegin, attrValueBytes, 0, valueEnd - valueBegin);
+                                        String attrValue = new String(attrValueBytes, java.nio.charset.StandardCharsets.UTF_8);
+                                        String fileTypeName = config.fileTypes.get(col.fileTypeIndex);
+                                        ctx.setColumnValue(fileTypeName, col.columnIndex, attrValue);
+                                    }
+                                }
+                            }
+                        } else if (event == 4) { // EV_INNER_TEXT
+                            // Extract inner text
+                            byte[] textBytes = new byte[valueEnd - valueBegin];
+                            System.arraycopy(holder.getByteBuffer(), valueBegin, textBytes, 0, valueEnd - valueBegin);
+                            String innerText = new String(textBytes, java.nio.charset.StandardCharsets.UTF_8);
+                            for (ColumnSpec col : group.innerTextCols) {
+                                String currentFileType = ctx.getCurrentFileType();
+                                if (currentFileType != null &&
+                                    currentFileType.equals(config.fileTypes.get(col.fileTypeIndex))) {
+                                    String fileTypeName = config.fileTypes.get(col.fileTypeIndex);
+                                    ctx.setColumnValue(fileTypeName, col.columnIndex, innerText);
+                                }
+                            }
+                        }
+                        return true;
                     }
+                }, cbCtx);
+            }
+        }
 
-                    public ThreadContext getThreadContext() {
-                        return threadContext;
-                    }
+        // EntityCallbackContext to hold ThreadContext and fileType for entity handlers
+        class EntityCallbackContext {
+            private final ThreadContext threadContext;
+            private final String fileType;
 
-                    public Integer getFileId() {
-                        return fileId;
-                    }
+            public EntityCallbackContext(ThreadContext threadContext, String fileType) {
+                this.threadContext = threadContext;
+                this.fileType = fileType;
+            }
+
+            public ThreadContext getThreadContext() {
+                return threadContext;
+            }
+
+            public String getFileType() {
+                return fileType;
+            }
+        }
+
+        // Register entity handlers: one per entityPath per thread
+        for (ThreadContext ctx : threadContexts) {
+            for (int i = 0; i < config.entityPaths.size(); i++) {
+                String entityPath = config.entityPaths.get(i);
+                String fileType = config.fileTypes.get(i); // corresponding fileType for this entityPath
+                boolean useRootAsEntity = config.useRootAsEntity.get(i);
+                EntityCallbackContext ebCtx = new EntityCallbackContext(ctx, fileType);
+
+                // Determine the registration path
+                String registPath;
+                if (useRootAsEntity) {
+                    // For root entity, register at root level
+                    registPath = "/"; // or "" depending on xmlBluePrint API
+                } else {
+                    // For normal entity, register at the specified path
+                    registPath = entityPath;
                 }
-                EntityCallbackContext ebCtx = new EntityCallbackContext(ctx, fileId);
-                bp.regist(entityPath, new xmlBluePrintCall() {
+
+                bp.regist(registPath, new xmlBluePrintCall() {
                     @Override
                     public boolean call(Object idToken, xmlBluePrintHolder holder, int event, int nameBegin, int nameEnd, int valueBegin, int valueEnd) {
                         EntityCallbackContext ebCtx = (EntityCallbackContext) idToken;
                         ThreadContext ctx = ebCtx.getThreadContext();
-                        Integer fileId = ebCtx.getFileId();
-
-                        FileOp fileOp = config.fileOPs.get(fileId);
-                        if (fileOp == null) {
-                            return true;
-                        }
-
-                        String fileType = fileOp.fileName;
-
+                        String fileType = ebCtx.getFileType();
                         if (event == 1) { // EV_OPEN_TAG
-                            // Initialize/reset the column buffer for this fileType
-                            ctx.initColumnBuffer(fileType);
-                            // Clear the buffer (set all to null)
+                            // Set the current file type for this entity
+                            ctx.setCurrentFileType(fileType);
+                            // Try to get the file name from holder
+                            // Try to get the file name from holder
+                            // Try to get the file name from holder and look up relative path
+                            String sourceFile = "unknown";
+                            if (holder != null) {
+                                byte[] jobNameBytes = holder.getXmlName();
+                                int jobNameLen = holder.getXmlNameLength();
+                                if (jobNameBytes != null && jobNameLen > 0) {
+                                    try {
+                                        String jobName = new String(jobNameBytes, 0, jobNameLen, StandardCharsets.UTF_8);
+                                        int fileId = jobName.hashCode();
+                                        FileInfo fileInfo = ctx.getFileInfo(fileId);
+                                        if (fileInfo != null) {
+                                            sourceFile = fileInfo.relativePath;
+                                        }
+                                    } catch (Exception e) {
+                                        // sourceFile remains "unknown"
+                                    }
+                                }
+                            }
+                            ctx.setCurrentSourceFile(sourceFile);
+                            // Clear the column buffer for this file type to start fresh for this entity.
                             ctx.clearColumnBuffer(fileType);
-                            // Note: Column 0 (source file name) will be set when we process the file name
+                            // Set column 0 to the source file name
+                            ctx.setColumnValue(fileType, 0, sourceFile);
                             return true;
                         } else if (event == 2) { // EV_CLOSE_TAG
-                            // Build output line from column buffer and write to appropriate output
+                            // Build row for this file type and append to buffer
                             String row = ctx.buildRow(fileType);
                             if (row != null) {
-                                // Write to the appropriate data buffer for this fileType and thread
-                                try {
-                                    BufferedWriter writer = ctx.getDataWriter(fileType);
+                                // Append to data buffer for this file type
+                                StringBuilder buffer = ctx.dataBuffers.get(fileType);
+                                if (buffer == null) {
+                                    buffer = new StringBuilder();
+                                    ctx.dataBuffers.put(fileType, buffer);
+                                }
+                                buffer.append(row).append('\n');
+                                // Increment row counter
+                                AtomicInteger counter = ctx.dataRowCounters.get(fileType);
+                                if (counter == null) {
+                                    counter = new AtomicInteger();
+                                    ctx.dataRowCounters.put(fileType, counter);
+                                }
+                                counter.incrementAndGet();
+                                // Check if we need to flush (every 1000 rows)
+                                if (counter.get() >= BATCH_SIZE) {
+                                    // Flush the data buffer for this fileType to the data writer
+                                    BufferedWriter writer = ctx.dataWriters.get(fileType);
                                     if (writer != null) {
-                                        StringBuilder buffer = ctx.dataBuffers.get(fileType);
-                                        if (buffer == null) {
-                                            buffer = new StringBuilder();
-                                            ctx.dataBuffers.put(fileType, buffer);
-                                        }
-                                        buffer.append(row).append('\n');
-
-                                        // Increment row counter
-                                        AtomicInteger counter = ctx.dataRowCounters.get(fileType);
-                                        if (counter == null) {
-                                            counter = new AtomicInteger();
-                                            ctx.dataRowCounters.put(fileType, counter);
-                                        }
-                                        counter.incrementAndGet();
-
-                                        // Check if we need to flush (every 1000 rows)
-                                        if (counter.get() >= BATCH_SIZE) {
-                                            // Flush the data buffer for this fileType to the data writer
-                                            if (writer != null) {
-                                                StringBuilder buf = ctx.dataBuffers.get(fileType);
-                                                if (buf != null && buf.length() > 0) {
-                                                    // Implement retry mechanism for transient failures
-                                                    int maxRetries = 3;
-                                                    int retryCount = 0;
-                                                    boolean flushed = false;
-                                                    while (retryCount < maxRetries && !flushed) {
+                                        StringBuilder buf = ctx.dataBuffers.get(fileType);
+                                        if (buf != null && buf.length() > 0) {
+                                            // Implement retry mechanism for transient failures
+                                            int maxRetries = 3;
+                                            int retryCount = 0;
+                                            boolean flushed = false;
+                                            while (retryCount < maxRetries && !flushed) {
+                                                try {
+                                                    writer.write(buf.toString());
+                                                    // Note: buffer already contains newlines after each row
+                                                    flushed = true;
+                                                } catch (IOException e) {
+                                                    retryCount++;
+                                                    if (e.getMessage() != null && (e.getMessage().contains("Permission denied") ||
+                                                                                  e.getMessage().contains("Access is denied"))) {
+                                                        System.err.println("Permission denied when flushing data buffer for fileType " + fileType + ": " + e.getMessage());
+                                                        // Don't retry on permission errors
+                                                        break;
+                                                    } else if (e.getMessage() != null && e.getMessage().contains("No space left on device")) {
+                                                        System.err.println("Disk full when flushing data buffer for fileType " + fileType + ": " + e.getMessage());
+                                                        // Don't retry on disk full
+                                                        break;
+                                                    } else if (retryCount >= maxRetries) {
+                                                        System.err.println("Failed to flush data buffer for fileType " + fileType + " after " + maxRetries + " attempts: " + e.getMessage());
+                                                    } else {
+                                                        System.err.println("Error flushing data buffer for fileType " + fileType + " (attempt " + retryCount + "/" + maxRetries + "): " + e.getMessage());
+                                                        // Wait briefly before retrying
                                                         try {
-                                                            writer.write(buf.toString());
-                                                            flushed = true;
-                                                        } catch (IOException e) {
-                                                            retryCount++;
-                                                            if (e.getMessage() != null && (e.getMessage().contains("Permission denied") ||
-                                                                                      e.getMessage().contains("Access is denied"))) {
-                                                                System.err.println("Permission denied when flushing data buffer for fileType " + fileType + ", thread " + ctx.getThreadNo() + ": " + e.getMessage());
-                                                                // Don't retry on permission errors
-                                                                break;
-                                                            } else if (e.getMessage() != null && e.getMessage().contains("No space left on device")) {
-                                                                System.err.println("Disk full when flushing data buffer for fileType " + fileType + ", thread " + ctx.getThreadNo() + ": " + e.getMessage());
-                                                                // Don't retry on disk full
-                                                                break;
-                                                            } else if (retryCount >= maxRetries) {
-                                                                System.err.println("Failed to flush data buffer for fileType " + fileType + ", thread " + ctx.getThreadNo() + " after " + maxRetries + " attempts: " + e.getMessage());
-                                                            } else {
-                                                                System.err.println("Error flushing data buffer for fileType " + fileType + ", thread " + ctx.getThreadNo() + " (attempt " + retryCount + "/" + maxRetries + "): " + e.getMessage());
-                                                                // Wait briefly before retrying
-                                                                try {
-                                                                    Thread.sleep(100 * retryCount); // Exponential backoff
-                                                                } catch (InterruptedException ie) {
-                                                                    Thread.currentThread().interrupt();
-                                                                    break;
-                                                                }
-                                                            }
+                                                            Thread.sleep(100 * retryCount); // Exponential backoff
+                                                        } catch (InterruptedException ie) {
+                                                            Thread.currentThread().interrupt();
+                                                            break;
                                                         }
                                                     }
                                                 }
-                                            // Clear the buffer and reset the counter
-                                            StringBuilder buf = ctx.dataBuffers.get(fileType);
-                                            if (buf != null) {
-                                                buf.setLength(0);
                                             }
-                                            counter.set(0);
                                         }
                                     }
-                                }
-                                catch (IOException e) {
-                                    System.err.println("Error writing to data writer for fileType " + fileType + ", thread " + ctx.getThreadNo() + ": " + e.getMessage());
+                                    // Clear the buffer and reset the counter
+                                    StringBuilder buf = ctx.dataBuffers.get(fileType);
+                                    if (buf != null) {
+                                        buf.setLength(0);
+                                    }
+                                    counter.set(0);
                                 }
                             }
+                            // Reset current file type and source file for next entity
+                            ctx.setCurrentFileType(null);
+                            ctx.setCurrentSourceFile(null);
                             return true;
                         }
                         return true;
                     }
                 }, ebCtx);
-
-                // Register column handlers for this file
-                for (Map.Entry<String, ColumnInfo> columnEntry : fileOp.columns.entrySet()) {
-                    String columnPath = columnEntry.getKey();
-                    ColumnInfo columnInfo = columnEntry.getValue();
-
-                    // Register attribute handlers for each attribute in this column
-                    for (Map.Entry<String, Integer> attrEntry : columnInfo.attr.entrySet()) {
-                        String attrName = attrEntry.getKey();
-                        Integer bpColIndex = attrEntry.getValue(); // 0-based among bp columns
-
-                        // Create idToken for attribute handler: {threadContext, fileId, columnPath, attrName, bpColIndex, isAttr: true}
-                        class ColumnAttributeCallbackContext {
-                            private final ThreadContext threadContext;
-                            private final Integer fileId;
-                            private final String columnPath;
-                            private final String attrName;
-                            private final Integer bpColIndex;
-                            private final boolean isAttr;
-
-                            public ColumnAttributeCallbackContext(ThreadContext threadContext, Integer fileId, String columnPath, String attrName, Integer bpColIndex, boolean isAttr) {
-                                this.threadContext = threadContext;
-                                this.fileId = fileId;
-                                this.columnPath = columnPath;
-                                this.attrName = attrName;
-                                this.bpColIndex = bpColIndex;
-                                this.isAttr = isAttr;
-                            }
-
-                            public ThreadContext getThreadContext() { return threadContext; }
-                            public Integer getFileId() { return fileId; }
-                            public String getColumnPath() { return columnPath; }
-                            public String getAttrName() { return attrName; }
-                            public Integer getBpColIndex() { return bpColIndex; }
-                            public boolean isAttr() { return isAttr; }
-                        }
-                        ColumnAttributeCallbackContext cbCtx = new ColumnAttributeCallbackContext(ctx, fileId, columnPath, attrName, bpColIndex, true);
-                        bp.regist(columnPath, new xmlBluePrintCall() {
-                            @Override
-                            public boolean call(Object idToken, xmlBluePrintHolder holder, int event, int nameBegin, int nameEnd, int valueBegin, int valueEnd) {
-                                ColumnAttributeCallbackContext cbCtx = (ColumnAttributeCallbackContext) idToken;
-                                ThreadContext ctx = cbCtx.getThreadContext();
-                                Integer fileId = cbCtx.getFileId();
-                                String columnPath = cbCtx.getColumnPath();
-                                String attrName = cbCtx.getAttrName();
-                                Integer bpColIndex = cbCtx.getBpColIndex();
-
-                                FileOp fileOp = config.fileOPs.get(fileId);
-                                if (fileOp == null) {
-                                    return true;
-                                }
-
-                                // Verify this column path matches what we're handling
-                                ColumnInfo columnInfo = fileOp.columns.get(columnPath);
-                                if (columnInfo == null) {
-                                    return true;
-                                }
-
-                                if (event == 3) { // EV_ATTR
-                                    // Extract attribute name from event
-                                    byte[] attrNameBytes = new byte[nameEnd - nameBegin];
-                                    System.arraycopy(holder.getByteBuffer(), nameBegin, attrNameBytes, 0, nameEnd - nameBegin);
-                                    String eventAttrName = new String(attrNameBytes, StandardCharsets.UTF_8);
-
-                                    // Check if this matches the attribute we're handling
-                                    if (eventAttrName.equals(attrName)) {
-                                        // Extract attribute value
-                                        byte[] attrValueBytes = new byte[valueEnd - valueBegin];
-                                        System.arraycopy(holder.getByteBuffer(), valueBegin, attrValueBytes, 0, valueEnd - valueBegin);
-                                        String attrValue = new String(attrValueBytes, StandardCharsets.UTF_8);
-
-                                        // Handle empty attribute value (put "1" as per some interpretations)
-                                        String valueToStore = attrValue.isEmpty() ? "1" : attrValue;
-
-                                        // Set the value in column buffer at the column index
-                                        // columnBuffers[fileType][0] = source file name
-                                        // columnBuffers[fileType][bpColIndex+1] = bp column value
-                                        String[] columnBuffer = ctx.columnBuffers.get(fileType);
-                                        if (columnBuffer != null && bpColIndex >= 0 && bpColIndex < fileOp.countCol) {
-                                            int arrayIndex = bpColIndex + 1; // +1 for source file column at index 0
-                                            if (columnBuffer[arrayIndex] == null) {
-                                                columnBuffer[arrayIndex] = new StringBuilder();
-                                            }
-                                            columnBuffer[arrayIndex].setLength(0); // Clear
-                                            columnBuffer[arrayIndex].append(valueToStore);
-                                        }
-                                    }
-                                    return true;
-                                }
-                                return true;
-                            }
-                        }, cbCtx);
-                    }
-
-                    // Register inner text handler for this column (if it has inner text)
-                    if (columnInfo.inner != -1) {
-                        Integer bpColIndex = columnInfo.inner; // 0-based among bp columns
-
-                        // Create idToken for inner text handler: {threadContext, fileId, columnPath, bpColIndex, isInner: true}
-                        class ColumnInnerCallbackContext {
-                            private final ThreadContext threadContext;
-                            private final Integer fileId;
-                            private final String columnPath;
-                            private final Integer bpColIndex;
-                            private final boolean isInner;
-
-                            public ColumnInnerCallbackContext(ThreadContext threadContext, Integer fileId, String columnPath, Integer bpColIndex, boolean isInner) {
-                                this.threadContext = threadContext;
-                                this.fileId = fileId;
-                                this.columnPath = columnPath;
-                                this.bpColIndex = bpColIndex;
-                                this.isInner = isInner;
-                            }
-
-                            public ThreadContext getThreadContext() { return threadContext; }
-                            public Integer getFileId() { return fileId; }
-                            public String getColumnPath() { return columnPath; }
-                            public Integer getBpColIndex() { return bpColIndex; }
-                            public boolean isInner() { return isInner; }
-                        }
-                        ColumnInnerCallbackContext cbCtx = new ColumnInnerCallbackContext(ctx, fileId, columnPath, bpColIndex, true);
-                        bp.regist(columnPath, new xmlBluePrintCall() {
-                            @Override
-                            public boolean call(Object idToken, xmlBluePrintHolder holder, int event, int nameBegin, int nameEnd, int valueBegin, int valueEnd) {
-                                ColumnInnerCallbackContext cbCtx = (ColumnInnerCallbackContext) idToken;
-                                ThreadContext ctx = cbCtx.getThreadContext();
-                                Integer fileId = cbCtx.getFileId();
-                                String columnPath = cbCtx.getColumnPath();
-                                Integer bpColIndex = cbCtx.getBpColIndex();
-
-                                FileOp fileOp = config.fileOPs.get(fileId);
-                                if (fileOp == null) {
-                                    return true;
-                                }
-
-                                // Verify this column path matches what we're handling
-                                ColumnInfo columnInfo = fileOp.columns.get(columnPath);
-                                if (columnInfo == null) {
-                                    return true;
-                                }
-
-                                if (event == 4) { // EV_INNER_TEXT
-                                    // Extract inner text from event
-                                    byte[] textBytes = new byte[valueEnd - valueBegin];
-                                    System.arraycopy(holder.getByteBuffer(), valueBegin, textBytes, 0, valueEnd - valueBegin);
-                                    String innerText = new String(textBytes, StandardCharsets.UTF_8);
-
-                                    // Set the value in column buffer at the column index
-                                    // columnBuffers[fileType][0] = source file name
-                                    // columnBuffers[fileType][bpColIndex+1] = bp column value
-                                    String[] columnBuffer = ctx.columnBuffers.get(fileType);
-                                    if (columnBuffer != null && bpColIndex >= 0 && bpColIndex < fileOp.countCol) {
-                                        int arrayIndex = bpColIndex + 1; // +1 for source file column at index 0
-                                        if (columnBuffer[arrayIndex] == null) {
-                                            columnBuffer[arrayIndex] = new StringBuilder();
-                                        }
-                                        columnBuffer[arrayIndex].setLength(0); // Clear
-                                        columnBuffer[arrayIndex].append(innerText);
-                                    }
-                                    return true;
-                                }
-                                return true;
-                            }
-                        }, cbCtx);
-                    }
-                }
             }
         }
 
+        // LogCallbackContext to hold ThreadContext and logType for log handlers
+        class LogCallbackContext {
+            private final ThreadContext threadContext;
+            private final String logType;
+
+            public LogCallbackContext(ThreadContext threadContext, String logType) {
+                this.threadContext = threadContext;
+                this.logType = logType;
+            }
+
+            public ThreadContext getThreadContext() {
+                return threadContext;
+            }
+
+            public String getLogType() {
+                return logType;
+            }
+        }
+
+        // Register log handlers (read, success, fail) at document level
+        // We assume the document level path is "" (root)
+        String rootPath = "";
+        for (ThreadContext ctx : threadContexts) {
+            for (String logType : Arrays.asList("read", "success", "fail")) {
+                LogCallbackContext lbCtx = new LogCallbackContext(ctx, logType);
+                bp.regist(rootPath, new xmlBluePrintCall() {
+                    @Override
+                    public boolean call(Object idToken, xmlBluePrintHolder holder, int event, int nameBegin, int nameEnd, int valueBegin, int valueEnd) {
+                        LogCallbackContext lbCtx = (LogCallbackContext) idToken;
+                        ThreadContext ctx = lbCtx.getThreadContext();
+                        String logType = lbCtx.getLogType();
+                        if (logType.equals("read")) {
+                            // Read log: on EV_OPEN_TAG at root, append file name to read log buffer.
+                            if (event == 1) { // EV_OPEN_TAG
+                                String fileName = "unknown";
+                                if (holder != null) {
+                                    byte[] jobNameBytes = holder.getXmlName();
+                                    int jobNameLen = holder.getXmlNameLength();
+                                    if (jobNameBytes != null && jobNameLen > 0) {
+                                        try {
+                                            fileName = new String(jobNameBytes, 0, jobNameLen, StandardCharsets.UTF_8);
+                                        } catch (Exception e) {
+                                            // fileName remains "unknown"
+                                        }
+                                    }
+                                }
+                                // Append to read log buffer
+                                StringBuilder buffer = ctx.logBuffers.get("read");
+                                if (buffer == null) {
+                                    buffer = new StringBuilder();
+                                    ctx.logBuffers.put("read", buffer);
+                                }
+                                buffer.append(fileName).append('\n');
+                                // Increment read log counter
+                                AtomicInteger counter = ctx.logCounters.get("read");
+                                if (counter == null) {
+                                    counter = new AtomicInteger();
+                                    ctx.logCounters.put("read", counter);
+                                }
+                                counter.incrementAndGet();
+                                // Flush if batch size reached
+                                if (counter.get() >= BATCH_SIZE) {
+                                    flushLogBuffer(ctx, "read");
+                                }
+                                return true;
+                            }
+                            // For EV_CLOSE_TAG, we do nothing for read log (already logged at open)
+                            return true;
+                        } else if (logType.equals("success") || logType.equals("fail")) {
+                            // Success/Fail log: on EV_OPEN_TAG at root, do nothing.
+                            // On EV_CLOSE_TAG at root, we determine success/failure and log accordingly.
+                            if (event == 2) { // EV_CLOSE_TAG
+                                String fileName = "unknown";
+                                boolean success = true; // default to success
+                                if (holder != null) {
+                                    byte[] jobNameBytes = holder.getXmlName();
+                                    int jobNameLen = holder.getXmlNameLength();
+                                    if (jobNameBytes != null && jobNameLen > 0) {
+                                        try {
+                                            fileName = new String(jobNameBytes, 0, jobNameLen, StandardCharsets.UTF_8);
+                                        } catch (Exception e) {
+                                            // fileName remains "unknown"
+                                        }
+                                    }
+                                }
+                                // Get success flag from thread context
+                                success = ctx.getCurrentFileSuccess();
+                                StringBuilder buffer = null;
+                                AtomicInteger counter = null;
+                                if (success) {
+                                    buffer = ctx.logBuffers.get("success");
+                                    counter = ctx.logCounters.get("success");
+                                } else {
+                                    buffer = ctx.logBuffers.get("fail");
+                                    counter = ctx.logCounters.get("fail");
+                                }
+                                if (buffer == null) {
+                                    buffer = new StringBuilder();
+                                    if (success) {
+                                        ctx.logBuffers.put("success", buffer);
+                                    } else {
+                                        ctx.logBuffers.put("fail", buffer);
+                                    }
+                                }
+                                if (counter == null) {
+                                    counter = new AtomicInteger();
+                                    if (success) {
+                                        ctx.logCounters.put("success", counter);
+                                    } else {
+                                        ctx.logCounters.put("fail", counter);
+                                    }
+                                }
+                                buffer.append(fileName).append('\n');
+                                counter.incrementAndGet();
+                                // Flush if batch size reached
+                                if (counter.get() >= BATCH_SIZE) {
+                                    if (success) {
+                                        flushLogBuffer(ctx, "success");
+                                    } else {
+                                        flushLogBuffer(ctx, "fail");
+                                    }
+                                }
+                                // Reset success flag for next file
+                                ctx.setCurrentFileSuccess(true);
+                                return true;
+                            }
+                            // For EV_OPEN_TAG, do nothing for success/fail logs
+                            return true;
+                        }
+                        return true;
+                    }
+                }, lbCtx);
+            }
+        }
         // Implement validation checks after registration
         // For now, we just print a message that validation passed.
         System.out.println("Validation checks passed for xmlBluePrint registration.");
@@ -1147,6 +1185,11 @@ public class XML2TXT {
                                         }
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+            }
             // Flush log buffers
             for (Map.Entry<String, StringBuilder> entry : ctx.logBuffers.entrySet()) {
                 String logType = entry.getKey();
@@ -1799,14 +1842,6 @@ public class XML2TXT {
             this.fileName = fileName;
             this.originalPath = originalPath;
             this.relativePath = relativePath;
-        }
-    }
-
-    public static void testTryCatch() {
-        try {
-            System.out.println("In try block");
-        } catch (Exception e) {
-            System.out.println("In catch block");
         }
     }
 }
