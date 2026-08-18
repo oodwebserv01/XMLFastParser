@@ -310,28 +310,50 @@ Usage Instructions
     * Verify that the tag at current pointer matches the expected hash.
     * Reads tag name starting at pointer and hashes it for comparison.
     */
-   private static boolean verifyTagAtPointer(xmlBluePrintHolder holder, long expectedHash) {
+private static boolean verifyTagAtPointer(xmlBluePrintHolder holder, long expectedHash) {
       byte[] buf = holder.jobStart[holder.cp];
-      int ptr = holder.pointer;
+      int originalPtr = holder.pointer;
       int len = holder.jobLength[holder.cp];
 
-      // Skip '<' if present
-      if (ptr < len && buf[ptr] == '<') ptr++;
+      final int TOLERANCE = 5;
 
-      // Read tag name
-      int nameStart = ptr;
-      while (ptr < len) {
-         byte b = buf[ptr];
-         if (b == '>' || b == '/' || b == ' ' || b == '\t' || b == '\n' || b == '\r') break;
-         ptr++;
+      // 1. ตั้งกรอบค้นหา (Clamp ขอบเขตความปลอดภัย)
+      int minDelta = Math.max(-TOLERANCE, -originalPtr);
+      int maxDelta = Math.min(TOLERANCE, len - 1 - originalPtr);
+
+      // วนลูปสแกนในกรอบ
+      for (int delta = minDelta; delta <= maxDelta; delta++) {
+         int ptr = originalPtr + delta;
+
+         // 2. Scan for '<' : ถ้าไม่ใช่ ให้ข้ามไป (ถ้าหาไม่เจอเลยในกรอบ ลูปก็จะจบและคืนค่า false ด้านล่าง)
+         if (buf[ptr] != '<') {
+            continue;
+         }
+
+         // 3. Check hashTagName (เมื่อเจอ '<' แล้ว ค่อยอ่านชื่อและแฮช)
+         int tempPtr = ptr + 1; // ข้าม '<'
+         int nameStart = tempPtr;
+         
+         while (tempPtr < len) {
+            byte b = buf[tempPtr];
+            if (b == '>' || b == '/' || b == ' ' || b == '\t' || b == '\n' || b == '\r') break;
+            tempPtr++;
+         }
+         int nameEnd = tempPtr;
+
+         if (nameEnd <= nameStart) continue;
+
+         long actualHash = hash(buf, nameStart, nameEnd);
+         
+         if (actualHash == expectedHash) {
+            holder.pointer = ptr; // อัปเดตพิกัดจริงที่เจอทันที
+            return true;
+         }
       }
-      int nameEnd = ptr;
 
-      if (nameEnd <= nameStart) return false;
-
-      long actualHash = hash(buf, nameStart, nameEnd);
-      return actualHash == expectedHash;
-   }
+      // ถ้าวนจนหมดกรอบแล้วไม่เจอ '<' ที่ Hash ตรงกันเลย -> คืนค่า false (Fallback ไป FSM)
+      return false;
+}
 
    // this function for checking status if Parser is ready to down;
    public static boolean isReadyToDown(){
