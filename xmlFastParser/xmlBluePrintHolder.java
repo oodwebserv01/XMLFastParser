@@ -224,9 +224,8 @@ public class xmlBluePrintHolder {
     volatile int pp;
 
     public xmlBluePrintHolder(int Nof2Power) {
-        // Ensure exponent at least 1 (queue size >= 2)
-        if (Nof2Power < 1) Nof2Power = 1;
-        int size = 1 << Nof2Power; // 2^Nof2Power
+        // Ensure exponent at least 2 (queue size >= 4)
+        int size = 1 << ( Nof2Power>1? Nof2Power: 2 ); // 2^Nof2Power
         this.jobQueSize = size;
         this.jobQueMask = size - 1;
         this.tokenFile = new Object[size];

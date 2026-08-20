@@ -298,7 +298,7 @@ TOC[S_TARGET_ATTR]['>'] = HD_NOVAL_ATTR;</code></pre>
         <p>XMLFastReader does not use a central global queue. Instead, <code>pushJob()</code> distributes XML jobs directly to holder queues in a round‑robin manner. Each worker thread owns its holder and processes jobs from its own ring buffer.</p>
 
         <h4>Holder Queue (Ring Buffer)</h4>
-        <pre><code>// Size: 2^N (configured via setQueSize(N); minimum N=1 => size=2)
+        <pre><code>// Size: 2^N (configured via setQueSize(N); minimum N=2 => size=4)
 volatile byte[][] jobStart;
 volatile Object[] tokenFile;
 volatile int[] jobLength;

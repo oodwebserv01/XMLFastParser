@@ -480,7 +480,7 @@ xmlBluePrint.LogEntry[] allLogs = xmlBluePrint.getCollectedLogs();
         <h3>Memory</h3>
         <ul>
             <li>Reuse byte buffers when possible</li>
-            <li>Global queue: 16K jobs max; holder queue: 512 jobs each</li>
+            <li>Holder queue: configurable size (2^N jobs, N≥2 => min 4 jobs each; default 512)</li>
             <li>Log store: 10K entries (fixed, ring buffer)</li>
         </ul>
 
