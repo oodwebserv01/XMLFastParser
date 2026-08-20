@@ -39,7 +39,15 @@ entity:/rsm:SupplyChainTradeTransaction/ram:IncludedSupplyChainTradeLineItem
             , inner:-1
             }        
           }
-        , asmblyLine:[...]    
+        , asmblyLine:[
+            thread0Buff:[strColumn0,strColumn1,...,strColumnN]
+          , thread1Buff:[strColumn0,strColumn1,...,strColumnN]
+          .
+          .
+          .
+          , threadNBuff:[strColumn0,strColumn1,...,strColumnN]
+          ]
+        , asnblyFlag:[thread0flag,thread1flag,...,threadNflag]      
         }
   , hash("Items"):   
         { fileName:"Items"
@@ -59,11 +67,21 @@ entity:/rsm:SupplyChainTradeTransaction/ram:IncludedSupplyChainTradeLineItem
             , inner:-1
             }        
           }
-        , asmblyLine:[...]    
+        , asmblyLine:[
+            t0Buff:[strColumn0,strColumn1,...,strColumnN]
+          , t1Buff:[strColumn0,strColumn1,...,strColumnN]
+          .
+          .
+          .
+          , tNBuff:[strColumn0,strColumn1,...,strColumnN]
+          ]    
+	, asnblyFlag:[thread0flag,thread1flag,...,threadNflag]            
         }
   }
 
 *** หลักการทำงาน *** 
+ จำนวนเทรด ที่รับมาจาก พารามิเตอร์ คือ จำนวนเทรดที่ต้องส่งให้ xmlFasterParser และต้องใช้ในการ กำหนดขนาดของ asnblyFlag[จำนวนเทรด] และ asmblyLine[จำนวนเทรด][จำนวนเคอลัมน์ของแต่ละไฟล์]
+ 
   สร้างโครงสร้างข้อมูล ตามตัวอย่างข้างบน 
     function addColumn(file, string) {
       ถ้า string เป็น path# 
@@ -105,19 +123,31 @@ entity:/rsm:SupplyChainTradeTransaction/ram:IncludedSupplyChainTradeLineItem
         }
     }
     
+------ การ habdlerRoot ------
+    ถ้าเป็น EV_OPEN_TAG 
+    	เซ็ตค่าใน file.asmblyLine[threadNo][0] ให้เป็น ค่า "path/fileName" 
+    	เซ็ตค่าใน file.asmblyLine[threadNo][1-maxColumn] เป็น ""(empty) 
+    	เซ็ตค่าใน file.asmblyflag[threadNo] เป็น false
+    	
+    ถ้าเป็น EV_CLOSE_TAG และ  file.asmblyflag[threadNo]==true เขียนข้อมูลจาก file.asmblyLine[threadNo][0-max] ลงใน stringBuffer ที่เก็บ 1,000 บรรทัดก่อนเขียนลงไฟล์
+        
 ------ การ habdlerEntity ------
     idFile = idToken;
     file = fileOPs.get(idFile);
     
-    ถ้าเป็น EV_TAG_OPEN เคลียรค่าใน file.asmblyLine ให้เป็น ค่า default
-    ถ้าเป็น EV_TAG_CLOSE เขียนข้อมูลจาก file.asmblyLine ลงใน stringBuffer ที่เก็บ 1,000 บรรทัดก่อนเขียนลงไฟล์
+    ถ้าเป็น EV_OPEN_TAG 
+    	เคลียรค่าใน file.asmblyLine[threadNo][1-max] ให้เป็น ค่า ""(empty) 
+    	เซ็ตค่าใน file.asmblyflag[threadNo] เป็น false
+    	
+    ถ้าเป็น EV_CLOSE_TAG และ  file.asmblyflag[threadNo]==true เขียนข้อมูลจาก file.asmblyLine[threadNo][0-max] ลงใน stringBuffer ที่เก็บ 1,000 บรรทัดก่อนเขียนลงไฟล์
 
 ------ การ habdlerColumn ------    
     idFile = idToken.get(file);
     file = fileOPs.get(idFile);
 
     hMapAttr = idToken.get(attr);
-
+    
+    เซ็ตค่าใน file.asmblyflag[threadNo] เป็น true
     ถ้าเป็น EV_ATTR และ value เป็น empty ใส่ "1" เข้าไปใน file.asmblyLine[hMapAttr.get(hash("attrName"))]
     ถ้าเป็น EV_ATTR และมี value ใส่ value as String เข้าไปใน file.asmblyLine[hMapAttr.get(hash("attrName"))]
     ถ้าเป็น EV_INNER ให้ file.asmblyLine[hMapAttr.get(hash("attrName"))].add( valsue as string)

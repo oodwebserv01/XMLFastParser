@@ -1,4 +1,3 @@
-package xmlFastParser;
 
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
@@ -47,6 +46,8 @@ public class xmlBluePrintHolder {
     // For ignore tag tracking
     public long ignoreTagHash;           // Hash of tag being ignored
     public int ignoreDepth;              // Nesting depth of ignore tag
+    // ThreadContext associated with this holder (set by xmlBluePrint during worker initialization)
+    public XML2TXT.ThreadContext threadContext;
 
     // ==========================================
     // HANDLERS & TOKENS
@@ -110,6 +111,7 @@ public class xmlBluePrintHolder {
     // Get job from job queue
     boolean nextJob() {
         if (cp != pp && !xmlBluePrint.forceShutdown) {
+            boolean wasRootClosed = rootClosed;
             ready2down = false;
             charset = java.nio.charset.StandardCharsets.UTF_8;
             fHeaderCharset = false;
@@ -131,7 +133,16 @@ public class xmlBluePrintHolder {
             predictedIndex = 0;
             predictionActive = false;
             predictionValid = true;
-            rootClosed = false;  // Reset root closed flag
+
+            // Emit root close event if the previous job did not see a root closing tag.
+            // This guarantees that rootHandler receives EV_CLOSE_TAG for every job,
+            // even when the root open handler returned false or an error occurred before
+            // reaching the actual </root>.
+            if (!wasRootClosed && rootHandler != null) {
+                rootHandler.call(rootIdToken, this,
+                        xmlBluePrint.EV_CLOSE_TAG, 0, 0, 0, 0);
+            }
+            rootClosed = false;  // Reset root closed flag for new job
 
             cp = (cp + 1) & jobQueMask;
             return true;
@@ -198,7 +209,7 @@ public class xmlBluePrintHolder {
 
     /* -- CONSTRUCTION RELATE -- */    
     xmlBluePrintNode currentNode = null; // current brach
-    Thread myThread = null; int threadNo = -1;
+    Thread myThread = null; volatile int threadNo = -1;
     boolean ready2down = true;
     boolean rootClosed = false;  // Track if root close tag was processed
     

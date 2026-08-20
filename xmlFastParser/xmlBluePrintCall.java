@@ -1,4 +1,3 @@
-package xmlFastParser;
 
 public interface xmlBluePrintCall {
     // Original method for backward compatibility

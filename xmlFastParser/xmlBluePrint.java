@@ -1,4 +1,3 @@
-package xmlFastParser;
 
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
@@ -68,6 +67,30 @@ Usage Instructions
    * Used internally for path registration and tag matching during parsing
    * Public API available for custom hash-based lookups
  */
+   public xmlBluePrint() {
+       // Initialize instance-specific state
+       this.root = new xmlBluePrintNode();
+       this.threadCount = 0;
+       this.holders = null;
+       this.workerThreads = null;
+       this.distributorThread = null;
+       this.running = false;
+       this.paused = false;
+       this.shuttingdown = false;
+       this.forceShutdown = false;
+       this.logHead = 0;
+       this.logCount = 0;
+       this.cp = 0;
+       this.pp = 0;
+       this.jobName = new byte[jobQueSize][];
+       this.jobNameLength = new int[jobQueSize];
+       this.jobStart = new byte[jobQueSize][];
+       this.jobLength = new int[jobQueSize];
+       this.logStore = new LogEntry[MAX_LOGS];
+       this.TOC = new CELL[xmlState_MAX][256];
+       initializeTOC();
+   }
+
    public static void regist(String path, xmlBluePrintCall handler, Object token) {
        // Check if path is null, empty, or doesn't start with '/'
        if (path == null || path.isEmpty() || path.charAt(0) != '/') {
@@ -364,9 +387,19 @@ private static boolean verifyTagAtPointer(xmlBluePrintHolder holder, long expect
       return ret;
    }
 
-   public void run(){
+   /**
+   * Starts the parser threads. Returns false if rootHandler is not registered,
+   * because without a root handler we cannot guarantee the EV_CLOSE_TAG
+   * emission contract.
+   */
+public boolean run(){
       // Check if not already running to prevent multiple starts
       if (!running) {
+         // If no root handler registered, we cannot guarantee the close-tag
+         // emission contract; return false to indicate failure to start.
+         if (rootHandler == null) {
+            return false;
+         }
          root.handler = rootHandler;
          root.parent = root;
          root.isChildOfTarget = false;
@@ -438,7 +471,9 @@ private static boolean verifyTagAtPointer(xmlBluePrintHolder holder, long expect
                      }
 
                      // Normal FSM
-                     TOC[holder.xmlState][holder.jobStart[holder.cp][holder.pointer]]
+                     int idx = holder.jobStart[holder.cp][holder.pointer] & 0xFF;
+                     System.out.println("INVOKING CALLBACK: state=" + holder.xmlState + ", idx=" + idx + ", handler=" + TOC[holder.xmlState][idx].getClass().getName());
+                     TOC[holder.xmlState][idx]
                         .call(holder);
                   }
 
@@ -464,7 +499,9 @@ private static boolean verifyTagAtPointer(xmlBluePrintHolder holder, long expect
          }
 
          this.distributorThread = new Thread(this::jobDistributor, "xml-distributor");
-         this.distributorThread.start();         
+         this.distributorThread.start();
+         // Successfully started distributor and worker threads
+         return true;
       }
    };
 
@@ -1149,13 +1186,14 @@ private static boolean verifyTagAtPointer(xmlBluePrintHolder holder, long expect
          holder.currentNode = root;
 
          // Initialize target distance log
-         holder.rootOffset = holder.tagName; // byte offset of '<root'
+         holder.rootOffset = holder.tagName; // byte offset of '<root>'
          holder.lastTargetOffset = -1;
          holder.logSize = 0;
          holder.predictedLog = null;
          holder.predictedIndex = 0;
          holder.predictionActive = false;
          holder.predictionValid = true;
+         holder.rootClosed = false; // Ensure root closed flag is cleared on opening root
 
          if (rootHandler != null ) {
             if (! rootHandler.call(rootToken,holder,EV_OPEN_TAG,holder.tagName,holder.tagNameEnd,0,0)) {
@@ -1269,6 +1307,7 @@ private static boolean verifyTagAtPointer(xmlBluePrintHolder holder, long expect
          holder.attrEnd = holder.pointer;
 
          // callback to user
+         System.out.println("INVOKING HANDLER (EV_ATTR): " + holder.currentNode.handler.getClass().getName());
          if (!holder.currentNode.handler.call(holder.currentNode.idToken, holder, EV_ATTR, holder.attrName, holder.attrEnd, 0, 0)){
             HD_NEXT_XML(holder);
          }
@@ -1380,6 +1419,7 @@ private static boolean verifyTagAtPointer(xmlBluePrintHolder holder, long expect
 
          if (holder.attrEnd > holder.attrName) {
             // callback to user
+         System.out.println("INVOKING HANDLER (EV_ATTR): " + holder.currentNode.handler.getClass().getName());
             if (! holder.currentNode.handler.call(holder.currentNode.idToken, holder, EV_ATTR, holder.attrName, holder.attrEnd, holder.value, holder.valEnd)){
                HD_NEXT_XML(holder);
                return;
@@ -1417,6 +1457,7 @@ private static boolean verifyTagAtPointer(xmlBluePrintHolder holder, long expect
       @Override
       public void call(xmlBluePrintHolder holder) {
          holder.valEnd = holder.pointer++;
+         System.out.println("INVOKING HANDLER (EV_INNER_TEXT): " + holder.currentNode.handler.getClass().getName());
          if (! holder.currentNode.handler.call(holder.currentNode.idToken, holder, EV_INNER_TEXT, 0, 0, holder.value, holder.valEnd)) {
             HD_NEXT_XML(holder);
             return;

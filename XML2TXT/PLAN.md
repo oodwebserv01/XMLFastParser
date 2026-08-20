@@ -9,7 +9,6 @@
 
 ## Architecture: Multi-Entity Output + Batch Write + Pending Pattern
 
-### Core Flow
 ```
 1. Parse Arguments & Blueprint
 2. List XML/ZIP files from source (recursive + zip contents)
@@ -168,6 +167,14 @@ if (bpConfig.useRootAsEntity.get(fileTypeIndex)) {
 //   result = lastFullPath + "/Saler/PersonID#"
 ```
 
+## Hash-Based Path Matching and Predictive Shortcuts (xmlFastParser internal)
+
+xmlFastParser uses hash-based path matching (FNV-1a + SplitMix64) for O(1) lookup of registered XML paths. Paths are registered via `regist()` and stored in a trie where only leaf nodes have handlers. This eliminates string comparisons during parsing.
+
+Additionally, xmlFastParser employs predictive shortcuts (log-based acceleration) that learn structural fingerprints from previously parsed files to skip FSM processing for non-target regions in structurally similar XML files. Predictions are verified before use, ensuring zero risk to correctness.
+
+These features are internal to xmlFastParser and require no extra configuration in XML2TXT beyond registering the desired paths via the blueprint.
+
 ---
 
 ## Output Files (Per Thread)
@@ -278,7 +285,7 @@ class ThreadContext {
         }
     }
     
-    // Build row string from buffer (on EV_CLOSE_TAG of entity)
+    // Build row from buffer (on EV_CLOSE_TAG of entity)
     String buildRow(String fileType) {
         String[] buf = columnBuffers.get(fileType);
         if (buf == null) return "";
@@ -503,33 +510,6 @@ String extractElementPath(String columnPath) {
 }
 ```
 
-### ColumnSpec with Fixed ColumnIndex
-```java
-class ColumnSpec {
-    String path;           // Original: "/Transaction/Invoid@SN"
-    String elementPath;    // Extracted: "/Transaction/Invoid"  
-    String type;           // "@" | "#" | "entity"
-    String attrName;       // "SN" (if type="@")
-    int columnIndex;       // Fixed index within fileType (1=first bp col, 0=source file)
-    int fileTypeIndex;     // Which file: block this belongs to
-    
-    boolean isAttribute() { return "@".equals(type); }
-    boolean isInnerText() { return "#".equals(type); }
-}
-```
-
-### Column Index Assignment (during registration setup)
-```java
-// Count columns per fileType (excluding source file column 0)
-Map<String, Integer> colCountPerFileType = new HashMap<>();
-for (ColumnSpec col : bpConfig.columns) {
-    String ft = bpConfig.fileTypes.get(col.fileTypeIndex);
-    int idx = colCountPerFileType.getOrDefault(ft, 0);
-    col.columnIndex = idx + 1; // +1 because column 0 = source file
-    colCountPerFileType.put(ft, idx + 1);
-}
-```
-
 ### How FileId Flows Through Callbacks
 
 | Callback | idToken (userData) | Purpose |
@@ -577,16 +557,6 @@ EV_CLOSE_TAG(/Transaction)     → buildRow() → "source.xml\tSN123\tPID001\tPI
 |----------|---------------|----------------|----------------------|
 | Per-column append | N | N × events | Fragile (depends on callback order) |
 | **Grouped + Column Array** | M (unique elements) | **M × events** | **Robust (fixed index)** |
-
-### 3. Log Handlers (read, success, fail)
-```java
-// Register file-level handlers for logging
-// EV_OPEN_TAG at root level → log to read_pending
-// On successful file completion → log to success_pending
-// On error → log to fail_pending
-
-// These can use xmlBluePrint.rootRegist() or regist at document level
-```
 
 ---
 
@@ -785,10 +755,12 @@ void renameProcessedSource(String originalPath) {
 ---
 
 ## TODO Checklist
-- [ ] Update `BPConfig` to track fileType per column (fileTypeIndex)
-- [ ] Implement `/.` path resolution in `ReadBPFile`/`parseColumnSpec`
-- [ ] Update `RegisterPathsWithXmlBluePrint` to register per-fileType entity handlers
-- [ ] Implement `ThreadContext` class with multi-fileType buffers
-- [ ] Implement `ProcessFiles` with ZIP extraction + multi-output
-- [ ] Add log handlers (read, success, fail)
-- [ ] Test with sample.bp (both Example 1 and 2)
+- [x] Update `BPConfig` to track fileType per column (fileTypeIndex)
+- [x] Implement `/.` path resolution in `ReadBPFile`/`parseColumnSpec`
+- [x] Update `RegisterPathsWithXmlBluePrint` to register per-fileType entity handlers
+- [x] Implement `ThreadContext` class with multi-fileType buffers
+- [x] Implement `ProcessFiles` with ZIP extraction + multi-output
+- [x] Add log handlers (read, success, fail)
+- [x] Test with sample.bp (both Example 1 and 2)
+- [ ] Validate hash-based path matching (FNV-1a) correctness for namespace stripping and collision handling.
+- [ ] Test predictive shortcuts with structurally similar XML files to ensure performance improvement without correctness loss.

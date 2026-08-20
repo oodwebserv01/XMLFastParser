@@ -11,9 +11,6 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.Arrays;
-import xmlFastParser.xmlBluePrint;
-import xmlFastParser.xmlBluePrintCall;
-import xmlFastParser.xmlBluePrintHolder;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.io.InputStream;
@@ -70,7 +67,7 @@ public class XML2TXT {
      * @param e The exception (can be null)
      */
     private static void logError(String message, Exception e) {
-        if (currentLogLevel <= LOG_LEVEL_ERROR) {
+        if (currentLogLevel <= LOG_LEVEL_INFO) {
             System.err.println("ERROR: " + message);
             if (e != null) {
                 e.printStackTrace(System.err);
@@ -82,6 +79,8 @@ public class XML2TXT {
         // Print application header
         System.out.println("XML2TXT Java Application");
         System.out.println("Usage: java XML2TXT [-p path/file.bp] [-s sourcePath] [-d destPath] [-t threadCount]");
+        // Set log level to INFO to see info messages
+        currentLogLevel = LOG_LEVEL_INFO;
 
         // Parse arguments using Config class for cleaner integration
         Config config = ParseArguments(args);
@@ -97,38 +96,49 @@ public class XML2TXT {
             log(LOG_LEVEL_INFO, "\n=== XML2TXT Workflow ===");
 
             // Step 1: List all .xml and .zip files
+            log(LOG_LEVEL_INFO, "Before ListAllFile");
             String fileList = ListAllFile(config.sourcePath);
+            log(LOG_LEVEL_INFO, "After ListAllFile, fileList: " + fileList);
             if (fileList.isEmpty()) {
                 log(LOG_LEVEL_INFO, "No .xml or .zip files found in source path: " + config.sourcePath);
             } else {
                 log(LOG_LEVEL_INFO, "Found files: " + fileList);
             }
+            log(LOG_LEVEL_INFO, "After if-else");
 
             // Step 2: Read and parse .bp configuration file
             BPConfig bpConfig = ReadBPFile(config.pathBP);
             log(LOG_LEVEL_INFO, "BP configuration: " + bpConfig);
-
+            log(LOG_LEVEL_INFO, "Immediately after BP config");
+            log(LOG_LEVEL_INFO, "Before creating thread contexts");
             // Create ThreadContext instances for each thread
             List<ThreadContext> threadContexts = new ArrayList<>();
             for (int i = 0; i < config.threadCount; i++) {
                 threadContexts.add(new ThreadContext(i));
             }
+            log(LOG_LEVEL_INFO, "After creating thread contexts, count: " + threadContexts.size());
             // Create xmlBluePrint instance
             xmlBluePrint bp = new xmlBluePrint();
+            log(LOG_LEVEL_INFO, "After creating xmlBluePrint instance");
 
             // Step 3: Register paths with xmlBluePrint
             if (config.pathBP != null && !bpConfig.fileTypes.isEmpty()) {
+                log(LOG_LEVEL_INFO, "Before RegisterPathsWithXmlBluePrint");
                 RegisterPathsWithXmlBluePrint(bpConfig, threadContexts, bp);
+                log(LOG_LEVEL_INFO, "After RegisterPathsWithXmlBluePrint");
             }
 
             // Step 4: Process files using xmlBluePrint
             if (!fileList.isEmpty()) {
+                log(LOG_LEVEL_INFO, "Before ProcessFiles");
                 ProcessFiles(config.sourcePath, config.destPath, threadContexts, bpConfig, bp);
+                log(LOG_LEVEL_INFO, "After ProcessFiles");
             }
 
             log(LOG_LEVEL_INFO, "\n=== Workflow Completed ===");
         } catch (Exception e) {
-            logError("Error: " + e.getMessage(), e);
+            System.err.println("Error: " + e.getMessage());
+            e.printStackTrace(System.err);
             System.exit(1);
         }
     }
@@ -212,9 +222,7 @@ public class XML2TXT {
                     relativePath = name;
                 }
                 if (lowerName.endsWith(".xml")) {
-                    // Read the XML file
-                    byte[] bytes = java.nio.file.Files.readAllBytes(file.toPath());
-                    fileEntries.add(new FileEntry(bytes, name, absolutePath, relativePath));
+                    fileEntries.add(new FileEntry(name, absolutePath, relativePath, false, null));
                 } else if (lowerName.endsWith(".zip")) {
                     // Process ZIP file
                     try (ZipFile zipFile = new ZipFile(file)) {
@@ -222,21 +230,8 @@ public class XML2TXT {
                         while (entries.hasMoreElements()) {
                             ZipEntry entry = entries.nextElement();
                             if (!entry.isDirectory() && entry.getName().toLowerCase().endsWith(".xml")) {
-                                try (InputStream inputStream = zipFile.getInputStream(entry)) {
-                                    byte[] bytes = inputStream.readAllBytes();
-                                    // Use the entry name as fileName (without any path?)
-                                    String entryName = entry.getName();
-                                    // For ZIP entries, we don't have a relative path from the source root for the entry itself.
-                                    // We'll use the relative path of the ZIP file plus the entry name inside the ZIP?
-                                    // However, the requirement for column 0 is the relative path of the source file (the ZIP or XML).
-                                    // For an XML inside a ZIP, we might want to show the ZIP file's relative path and the entry name?
-                                    // But the spec says: column 0 contains relativePath/xmlFileName.xml (relative to source folder).
-                                    // If the source is a ZIP file, then the xmlFileName.xml is inside the ZIP, so the relative path should be the path to the ZIP file plus the path inside the ZIP?
-                                    // However, the current implementation treats the ZIP entry as a file with the entry name and the originalPath as the ZIP file's absolute path.
-                                    // We'll keep the relativePath as the relative path of the ZIP file (since the entry is inside the ZIP, but we don't have a file system path for it).
-                                    // This might be acceptable because the ZIP file is the source of the entry.
-                                    fileEntries.add(new FileEntry(bytes, entryName, absolutePath, relativePath));
-                                }
+                                String entryName = entry.getName();
+                                fileEntries.add(new FileEntry(entryName, absolutePath, relativePath, true, entryName));
                             }
                         }
                     } catch (IOException e) {
@@ -366,25 +361,7 @@ public class XML2TXT {
     }
 
 
-    /** Context for column callbacks, holding ThreadContext and elementPath */
-    private static class CallbackContext {
-        private final ThreadContext threadContext;
-        private final String elementPath;
-
-        public CallbackContext(ThreadContext threadContext, String elementPath) {
-            this.threadContext = threadContext;
-            this.elementPath = elementPath;
-        }
-
-        public ThreadContext getThreadContext() {
-            return threadContext;
-        }
-
-        public String getElementPath() {
-            return elementPath;
-        }
-    }
-
+    
     /** Group for an elementPath: attributes and inner text columns */
     private static class ElementPathGroup {
         Map<String, List<ColumnSpec>> attrMap = new HashMap<>();
@@ -614,322 +591,347 @@ public class XML2TXT {
         return success;
     }
 
+    private static Map<String, ElementPathGroup> groupColumnSpecs(BPConfig config) {
+        log(LOG_LEVEL_INFO, "In groupColumnSpecs, config.columns size: " + config.columns.size());
+        Map<String, ElementPathGroup> grouped = new HashMap<>();
+        for (ColumnSpec col : config.columns) {
+            log(LOG_LEVEL_INFO, "Processing column: " + col.path);
+            String elementPath = extractElementPath(col.path);
+            log(LOG_LEVEL_INFO, "elementPath: " + elementPath);
+            ElementPathGroup group = grouped.computeIfAbsent(elementPath, k -> new ElementPathGroup());
+            if ("@".equals(col.type)) {
+                group.attrMap.computeIfAbsent(col.attrName, k -> new ArrayList<>()).add(col);
+            } else if ("#".equals(col.type)) {
+                group.innerTextCols.add(col);
+            }
+        }
+        log(LOG_LEVEL_INFO, "groupColumnSpecs returning, size: " + grouped.size());
+        return grouped;
+    }
+
+    private static String extractElementPath(String columnPath) {
+        int atIdx = columnPath.lastIndexOf('@');
+        int hashIdx = columnPath.lastIndexOf('#');
+
+        if (atIdx > 0) {
+            return columnPath.substring(0, atIdx);
+        } else if (hashIdx > 0) {
+            return columnPath.substring(0, hashIdx);
+        }
+        return columnPath;
+    }
+
     public static void RegisterPathsWithXmlBluePrint(BPConfig config, List<ThreadContext> threadContexts, xmlBluePrint bp) {
-        // For each thread context
-        for (ThreadContext ctx : threadContexts) {
-            // For each file in fileOPs
-            for (Map.Entry<Integer, FileOp> entry : config.fileOPs.entrySet()) {
-                Integer fileId = entry.getKey();
-                FileOp fileOp = entry.getValue();
+        // Precompute grouped column specs
+        Map<String, ElementPathGroup> groupedColumnSpecs = groupColumnSpecs(config);
 
-                // Register entity handler for this file
-                String entityPath = fileOp.entity;
-                // Handle root entity (empty path)
-                if (entityPath == null || entityPath.isEmpty()) {
-                    entityPath = "/"; // Root path
-                }
-                // Ensure path starts with '/' for xmlBluePrint
-                if (!entityPath.startsWith("/")) {
-                    entityPath = "/" + entityPath;
-                }
+        // Create thread lookup array
+        final ThreadContext[] threadContextArray = threadContexts.toArray(new ThreadContext[0]);
 
-                // Create idToken for entity handler: {threadContext, fileId}
-                class EntityCallbackContext {
-                    private final ThreadContext threadContext;
-                    private final Integer fileId;
-
-                    public EntityCallbackContext(ThreadContext threadContext, Integer fileId) {
-                        this.threadContext = threadContext;
-                        this.fileId = fileId;
-                    }
-
-                    public ThreadContext getThreadContext() {
-                        return threadContext;
-                    }
-
-                    public Integer getFileId() {
-                        return fileId;
-                    }
-                }
-                EntityCallbackContext ebCtx = new EntityCallbackContext(ctx, fileId);
-                bp.regist(entityPath, new xmlBluePrintCall() {
-                    @Override
-                    public boolean call(Object idToken, xmlBluePrintHolder holder, int event, int nameBegin, int nameEnd, int valueBegin, int valueEnd) {
-                        EntityCallbackContext ebCtx = (EntityCallbackContext) idToken;
-                        ThreadContext ctx = ebCtx.getThreadContext();
-                        Integer fileId = ebCtx.getFileId();
-
-                        FileOp fileOp = config.fileOPs.get(fileId);
-                        if (fileOp == null) {
-                            return true;
-                        }
-
-                        String fileType = fileOp.fileName;
-
-                        if (event == 1) { // EV_OPEN_TAG
-                            // Initialize/reset the column buffer for this fileType
-                            ctx.initColumnBuffer(fileType);
-                            // Clear the buffer (set all to null)
-                            ctx.clearColumnBuffer(fileType);
-                            // Note: Column 0 (source file name) will be set when we process the file name
-                            return true;
-                        } else if (event == 2) { // EV_CLOSE_TAG
-                            // Build output line from column buffer and write to appropriate output
-                            String row = ctx.buildRow(fileType);
-                            if (row != null) {
-                                // Write to the appropriate data buffer for this fileType and thread
-                                try {
-                                    BufferedWriter writer = ctx.getDataWriter(fileType);
-                                    if (writer != null) {
-                                        StringBuilder buffer = ctx.dataBuffers.get(fileType);
-                                        if (buffer == null) {
-                                            buffer = new StringBuilder();
-                                            ctx.dataBuffers.put(fileType, buffer);
-                                        }
-                                        buffer.append(row).append('\n');
-
-                                        // Increment row counter
-                                        AtomicInteger counter = ctx.dataRowCounters.get(fileType);
-                                        if (counter == null) {
-                                            counter = new AtomicInteger();
-                                            ctx.dataRowCounters.put(fileType, counter);
-                                        }
-                                        counter.incrementAndGet();
-
-                                        // Check if we need to flush (every 1000 rows)
-                                        if (counter.get() >= BATCH_SIZE) {
-                                            // Flush the data buffer for this fileType to the data writer
-                                            if (writer != null) {
-                                                StringBuilder buf = ctx.dataBuffers.get(fileType);
-                                                if (buf != null && buf.length() > 0) {
-                                                    // Implement retry mechanism for transient failures
-                                                    int maxRetries = 3;
-                                                    int retryCount = 0;
-                                                    boolean flushed = false;
-                                                    while (retryCount < maxRetries && !flushed) {
-                                                        try {
-                                                            writer.write(buf.toString());
-                                                            flushed = true;
-                                                        } catch (IOException e) {
-                                                            retryCount++;
-                                                            if (e.getMessage() != null && (e.getMessage().contains("Permission denied") ||
-                                                                                      e.getMessage().contains("Access is denied"))) {
-                                                                System.err.println("Permission denied when flushing data buffer for fileType " + fileType + ", thread " + ctx.getThreadNo() + ": " + e.getMessage());
-                                                                // Don't retry on permission errors
-                                                                break;
-                                                            } else if (e.getMessage() != null && e.getMessage().contains("No space left on device")) {
-                                                                System.err.println("Disk full when flushing data buffer for fileType " + fileType + ", thread " + ctx.getThreadNo() + ": " + e.getMessage());
-                                                                // Don't retry on disk full
-                                                                break;
-                                                            } else if (retryCount >= maxRetries) {
-                                                                System.err.println("Failed to flush data buffer for fileType " + fileType + ", thread " + ctx.getThreadNo() + " after " + maxRetries + " attempts: " + e.getMessage());
-                                                            } else {
-                                                                System.err.println("Error flushing data buffer for fileType " + fileType + ", thread " + ctx.getThreadNo() + " (attempt " + retryCount + "/" + maxRetries + "): " + e.getMessage());
-                                                                // Wait briefly before retrying
-                                                                try {
-                                                                    Thread.sleep(100 * retryCount); // Exponential backoff
-                                                                } catch (InterruptedException ie) {
-                                                                    Thread.currentThread().interrupt();
-                                                                    break;
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            // Clear the buffer and reset the counter
-                                            StringBuilder buf = ctx.dataBuffers.get(fileType);
-                                            if (buf != null) {
-                                                buf.setLength(0);
-                                            }
-                                            counter.set(0);
-                                        }
-                                    }
-                                }
-                                catch (IOException e) {
-                                    System.err.println("Error writing to data writer for fileType " + fileType + ", thread " + ctx.getThreadNo() + ": " + e.getMessage());
-                                }
-                            }
-                            return true;
-                        }
+        // Register column callbacks: one per elementPath
+        // Register column callbacks: one per elementPath
+        for (Map.Entry<String, ElementPathGroup> entry : groupedColumnSpecs.entrySet()) {
+            String elementPath = entry.getKey();
+            ElementPathGroup group = entry.getValue();
+            xmlBluePrintCall columnCallback = new xmlBluePrintCall() {
+                @Override
+                public boolean call(Object idToken, xmlBluePrintHolder holder, int event, int nameBegin, int nameEnd, int valueBegin, int valueEnd) {
+                    System.out.println("CALLBACK: holder.getThreadNO()=" + holder.getThreadNO() + ", threadContextArray.length=" + threadContextArray.length + ", event=" + event);
+                    System.out.println("CALLBACK: threadNo=" + holder.getThreadNO() + ", event=" + event);
+                    int threadNo = holder.getThreadNO();
+                    if (threadNo < 0 || threadNo >= threadContextArray.length) {
+                        // Invalid thread number, ignore
                         return true;
                     }
-                }, ebCtx);
-
-                // Register column handlers for this file
-                for (Map.Entry<String, ColumnInfo> columnEntry : fileOp.columns.entrySet()) {
-                    String columnPath = columnEntry.getKey();
-                    ColumnInfo columnInfo = columnEntry.getValue();
-
-                    // Register attribute handlers for each attribute in this column
-                    for (Map.Entry<String, Integer> attrEntry : columnInfo.attr.entrySet()) {
-                        String attrName = attrEntry.getKey();
-                        Integer bpColIndex = attrEntry.getValue(); // 0-based among bp columns
-
-                        // Create idToken for attribute handler: {threadContext, fileId, columnPath, attrName, bpColIndex, isAttr: true}
-                        class ColumnAttributeCallbackContext {
-                            private final ThreadContext threadContext;
-                            private final Integer fileId;
-                            private final String columnPath;
-                            private final String attrName;
-                            private final Integer bpColIndex;
-                            private final boolean isAttr;
-
-                            public ColumnAttributeCallbackContext(ThreadContext threadContext, Integer fileId, String columnPath, String attrName, Integer bpColIndex, boolean isAttr) {
-                                this.threadContext = threadContext;
-                                this.fileId = fileId;
-                                this.columnPath = columnPath;
-                                this.attrName = attrName;
-                                this.bpColIndex = bpColIndex;
-                                this.isAttr = isAttr;
+                    ThreadContext ctx = threadContextArray[threadNo];
+                    if (event == 3) { // EV_ATTR
+                        // Extract attribute name
+                        byte[] attrNameBytes = new byte[nameEnd - nameBegin];
+                        System.arraycopy(holder.getByteBuffer(), nameBegin, attrNameBytes, 0, nameEnd - nameBegin);
+                        String attrName = new String(attrNameBytes, java.nio.charset.StandardCharsets.UTF_8);
+                        List<ColumnSpec> matchingCols = group.attrMap.get(attrName);
+                        if (matchingCols != null) {
+                            for (ColumnSpec col : matchingCols) {
+                                String currentFileType = ctx.getCurrentFileType();
+                                if (currentFileType != null && currentFileType.equals(config.fileTypes.get(col.fileTypeIndex))) {
+                                    // Extract attribute value
+                                    byte[] attrValueBytes = new byte[valueEnd - valueBegin];
+                                    System.arraycopy(holder.getByteBuffer(), valueBegin, attrValueBytes, 0, valueEnd - valueBegin);
+                                    String attrValue = new String(attrValueBytes, java.nio.charset.StandardCharsets.UTF_8);
+                                    String fileTypeName = config.fileTypes.get(col.fileTypeIndex);
+                                    ctx.setColumnValue(fileTypeName, col.columnIndex, attrValue);
+                                }
                             }
-
-                            public ThreadContext getThreadContext() { return threadContext; }
-                            public Integer getFileId() { return fileId; }
-                            public String getColumnPath() { return columnPath; }
-                            public String getAttrName() { return attrName; }
-                            public Integer getBpColIndex() { return bpColIndex; }
-                            public boolean isAttr() { return isAttr; }
                         }
-                        ColumnAttributeCallbackContext cbCtx = new ColumnAttributeCallbackContext(ctx, fileId, columnPath, attrName, bpColIndex, true);
-                        bp.regist(columnPath, new xmlBluePrintCall() {
-                            @Override
-                            public boolean call(Object idToken, xmlBluePrintHolder holder, int event, int nameBegin, int nameEnd, int valueBegin, int valueEnd) {
-                                ColumnAttributeCallbackContext cbCtx = (ColumnAttributeCallbackContext) idToken;
-                                ThreadContext ctx = cbCtx.getThreadContext();
-                                Integer fileId = cbCtx.getFileId();
-                                String columnPath = cbCtx.getColumnPath();
-                                String attrName = cbCtx.getAttrName();
-                                Integer bpColIndex = cbCtx.getBpColIndex();
-
-                                FileOp fileOp = config.fileOPs.get(fileId);
-                                if (fileOp == null) {
-                                    return true;
-                                }
-
-                                // Verify this column path matches what we're handling
-                                ColumnInfo columnInfo = fileOp.columns.get(columnPath);
-                                if (columnInfo == null) {
-                                    return true;
-                                }
-
-                                if (event == 3) { // EV_ATTR
-                                    // Extract attribute name from event
-                                    byte[] attrNameBytes = new byte[nameEnd - nameBegin];
-                                    System.arraycopy(holder.getByteBuffer(), nameBegin, attrNameBytes, 0, nameEnd - nameBegin);
-                                    String eventAttrName = new String(attrNameBytes, StandardCharsets.UTF_8);
-
-                                    // Check if this matches the attribute we're handling
-                                    if (eventAttrName.equals(attrName)) {
-                                        // Extract attribute value
-                                        byte[] attrValueBytes = new byte[valueEnd - valueBegin];
-                                        System.arraycopy(holder.getByteBuffer(), valueBegin, attrValueBytes, 0, valueEnd - valueBegin);
-                                        String attrValue = new String(attrValueBytes, StandardCharsets.UTF_8);
-
-                                        // Handle empty attribute value (put "1" as per some interpretations)
-                                        String valueToStore = attrValue.isEmpty() ? "1" : attrValue;
-
-                                        // Set the value in column buffer at the column index
-                                        // columnBuffers[fileType][0] = source file name
-                                        // columnBuffers[fileType][bpColIndex+1] = bp column value
-                                        String[] columnBuffer = ctx.columnBuffers.get(fileType);
-                                        if (columnBuffer != null && bpColIndex >= 0 && bpColIndex < fileOp.countCol) {
-                                            int arrayIndex = bpColIndex + 1; // +1 for source file column at index 0
-                                            if (columnBuffer[arrayIndex] == null) {
-                                                columnBuffer[arrayIndex] = new StringBuilder();
-                                            }
-                                            columnBuffer[arrayIndex].setLength(0); // Clear
-                                            columnBuffer[arrayIndex].append(valueToStore);
-                                        }
-                                    }
-                                    return true;
-                                }
-                                return true;
+                    } else if (event == 4) { // EV_INNER_TEXT
+                        // Extract inner text
+                        byte[] textBytes = new byte[valueEnd - valueBegin];
+                        System.arraycopy(holder.getByteBuffer(), valueBegin, textBytes, 0, valueEnd - valueBegin);
+                        String innerText = new String(textBytes, java.nio.charset.StandardCharsets.UTF_8);
+                        for (ColumnSpec col : group.innerTextCols) {
+                            String currentFileType = ctx.getCurrentFileType();
+                            if (currentFileType != null && currentFileType.equals(config.fileTypes.get(col.fileTypeIndex))) {
+                                String fileTypeName = config.fileTypes.get(col.fileTypeIndex);
+                                ctx.setColumnValue(fileTypeName, col.columnIndex, innerText);
                             }
-                        }, cbCtx);
-                    }
-
-                    // Register inner text handler for this column (if it has inner text)
-                    if (columnInfo.inner != -1) {
-                        Integer bpColIndex = columnInfo.inner; // 0-based among bp columns
-
-                        // Create idToken for inner text handler: {threadContext, fileId, columnPath, bpColIndex, isInner: true}
-                        class ColumnInnerCallbackContext {
-                            private final ThreadContext threadContext;
-                            private final Integer fileId;
-                            private final String columnPath;
-                            private final Integer bpColIndex;
-                            private final boolean isInner;
-
-                            public ColumnInnerCallbackContext(ThreadContext threadContext, Integer fileId, String columnPath, Integer bpColIndex, boolean isInner) {
-                                this.threadContext = threadContext;
-                                this.fileId = fileId;
-                                this.columnPath = columnPath;
-                                this.bpColIndex = bpColIndex;
-                                this.isInner = isInner;
-                            }
-
-                            public ThreadContext getThreadContext() { return threadContext; }
-                            public Integer getFileId() { return fileId; }
-                            public String getColumnPath() { return columnPath; }
-                            public Integer getBpColIndex() { return bpColIndex; }
-                            public boolean isInner() { return isInner; }
                         }
-                        ColumnInnerCallbackContext cbCtx = new ColumnInnerCallbackContext(ctx, fileId, columnPath, bpColIndex, true);
-                        bp.regist(columnPath, new xmlBluePrintCall() {
-                            @Override
-                            public boolean call(Object idToken, xmlBluePrintHolder holder, int event, int nameBegin, int nameEnd, int valueBegin, int valueEnd) {
-                                ColumnInnerCallbackContext cbCtx = (ColumnInnerCallbackContext) idToken;
-                                ThreadContext ctx = cbCtx.getThreadContext();
-                                Integer fileId = cbCtx.getFileId();
-                                String columnPath = cbCtx.getColumnPath();
-                                Integer bpColIndex = cbCtx.getBpColIndex();
-
-                                FileOp fileOp = config.fileOPs.get(fileId);
-                                if (fileOp == null) {
-                                    return true;
-                                }
-
-                                // Verify this column path matches what we're handling
-                                ColumnInfo columnInfo = fileOp.columns.get(columnPath);
-                                if (columnInfo == null) {
-                                    return true;
-                                }
-
-                                if (event == 4) { // EV_INNER_TEXT
-                                    // Extract inner text from event
-                                    byte[] textBytes = new byte[valueEnd - valueBegin];
-                                    System.arraycopy(holder.getByteBuffer(), valueBegin, textBytes, 0, valueEnd - valueBegin);
-                                    String innerText = new String(textBytes, StandardCharsets.UTF_8);
-
-                                    // Set the value in column buffer at the column index
-                                    // columnBuffers[fileType][0] = source file name
-                                    // columnBuffers[fileType][bpColIndex+1] = bp column value
-                                    String[] columnBuffer = ctx.columnBuffers.get(fileType);
-                                    if (columnBuffer != null && bpColIndex >= 0 && bpColIndex < fileOp.countCol) {
-                                        int arrayIndex = bpColIndex + 1; // +1 for source file column at index 0
-                                        if (columnBuffer[arrayIndex] == null) {
-                                            columnBuffer[arrayIndex] = new StringBuilder();
-                                        }
-                                        columnBuffer[arrayIndex].setLength(0); // Clear
-                                        columnBuffer[arrayIndex].append(innerText);
-                                    }
-                                    return true;
-                                }
-                                return true;
-                            }
-                        }, cbCtx);
                     }
+                    return true;
                 }
+            };
+            try {
+                bp.regist(elementPath, columnCallback, null);
+            } catch (Exception e) {
+                logError("Exception during bp.regist for elementPath: " + elementPath, e);
+                throw e;
             }
         }
 
-        // Implement validation checks after registration
-        // For now, we just print a message that validation passed.
-        System.out.println("Validation checks passed for xmlBluePrint registration.");
+        // Register entity handlers: one per entityPath
+        for (int i = 0; i < config.entityPaths.size(); i++) {
+            String entityPath = config.entityPaths.get(i);
+            String fileType = config.fileTypes.get(i);
+            boolean useRootAsEntity = config.useRootAsEntity.get(i);
+            xmlBluePrintCall entityCallback = new xmlBluePrintCall() {
+                @Override
+                public boolean call(Object idToken, xmlBluePrintHolder holder, int event, int nameBegin, int nameEnd, int valueBegin, int valueEnd) {
+                    int threadNo = holder.getThreadNO();
+                    if (threadNo < 0 || threadNo >= threadContextArray.length) {
+                        return true;
+                    }
+                    ThreadContext ctx = threadContextArray[threadNo];
+                    if (event == 1) { // EV_OPEN_TAG
+                        // Set the current file type for this entity
+                        ctx.setCurrentFileType(fileType);
+                        // Try to get the file name from holder
+                        String sourceFile = "unknown";
+                        if (holder != null) {
+                            byte[] jobNameBytes = holder.getXmlName();
+                            int jobNameLen = holder.getXmlNameLength();
+                            if (jobNameBytes != null && jobNameLen > 0) {
+                                try {
+                                    sourceFile = new String(jobNameBytes, 0, jobNameLen, java.nio.charset.StandardCharsets.UTF_8);
+                                } catch (Exception e) {
+                                    // sourceFile remains "unknown"
+                                }
+                            }
+                        }
+                        ctx.setCurrentSourceFile(sourceFile);
+                        // Clear the column buffer for this file type to start fresh for this entity.
+                        ctx.clearColumnBuffer(fileType);
+                        // Set column 0 to the source file name
+                        ctx.setColumnValue(fileType, 0, sourceFile);
+                        return true;
+                    } else if (event == 2) { // EV_CLOSE_TAG
+                        // Build row for this file type and append to buffer
+                        String row = ctx.buildRow(fileType);
+                        if (row != null) {
+                            // Append to data buffer for this file type
+                            StringBuilder buffer = ctx.dataBuffers.get(fileType);
+                            if (buffer == null) {
+                                buffer = new StringBuilder();
+                                ctx.dataBuffers.put(fileType, buffer);
+                            }
+                            buffer.append(row).append('\n');
+                            // Increment row counter
+                            java.util.concurrent.atomic.AtomicInteger counter = ctx.dataRowCounters.get(fileType);
+                            if (counter == null) {
+                                counter = new java.util.concurrent.atomic.AtomicInteger();
+                                ctx.dataRowCounters.put(fileType, counter);
+                            }
+                            counter.incrementAndGet();
+                            // Check if we need to flush (every 1000 rows)
+                            if (counter.get() >= BATCH_SIZE) {
+                                // Flush the data buffer for this fileType to the data writer
+                                java.io.BufferedWriter writer = ctx.dataWriters.get(fileType);
+                                if (writer != null) {
+                                    StringBuilder buf = ctx.dataBuffers.get(fileType);
+                                    if (buf != null && buf.length() > 0) {
+                                        // Implement retry mechanism for transient failures
+                                        int maxRetries = 3;
+                                        int retryCount = 0;
+                                        boolean flushed = false;
+                                        while (retryCount < maxRetries && !flushed) {
+                                            try {
+                                                writer.write(buf.toString());
+                                                // Note: buffer already contains newlines after each row
+                                                flushed = true;
+                                            } catch (java.io.IOException e) {
+                                                retryCount++;
+                                                if (e.getMessage() != null && (e.getMessage().contains("Permission denied") ||
+                                                                          e.getMessage().contains("Access is denied"))) {
+                                                    System.err.println("Permission denied when flushing data buffer for fileType " + fileType + ": " + e.getMessage());
+                                                    // Don't retry on permission errors
+                                                    break;
+                                                } else if (e.getMessage() != null && e.getMessage().contains("No space left on device")) {
+                                                    System.err.println("Disk full when flushing data buffer for fileType " + fileType + ": " + e.getMessage());
+                                                    // Don't retry on disk full
+                                                    break;
+                                                } else if (retryCount >= maxRetries) {
+                                                    System.err.println("Failed to flush data buffer for fileType " + fileType + " after " + maxRetries + " attempts: " + e.getMessage());
+                                                } else {
+                                                    System.err.println("Error flushing data buffer for fileType " + fileType + " (attempt " + retryCount + "/" + maxRetries + "): " + e.getMessage());
+                                                    // Wait briefly before retrying
+                                                    try {
+                                                        Thread.sleep(100 * retryCount); // Exponential backoff
+                                                    } catch (InterruptedException ie) {
+                                                        Thread.currentThread().interrupt();
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                // Clear the buffer and reset the counter
+                                StringBuilder buf = ctx.dataBuffers.get(fileType);
+                                if (buf != null) {
+                                    buf.setLength(0);
+                                }
+                                counter.set(0);
+                            }
+                        }
+                        // Reset current file type and source file for next entity
+                        ctx.setCurrentFileType(null);
+                        ctx.setCurrentSourceFile(null);
+                        return true;
+                    }
+                    return true;
+                }
+            };
+            try {
+                if (useRootAsEntity) {
+                    bp.rootRegist(entityCallback, null);
+                } else {
+                    bp.regist(entityPath, entityCallback, null);
+                }
+            } catch (Exception e) {
+                logError("Exception during entity registration for entityPath: " + entityPath, e);
+                throw e;
+            }
+        }
+
+        // Register log handlers (read, success, fail) at document level
+        for (String logType : java.util.Arrays.asList("read", "success", "fail")) {
+            xmlBluePrintCall logCallback = new xmlBluePrintCall() {
+                @Override
+                public boolean call(Object idToken, xmlBluePrintHolder holder, int event, int nameBegin, int nameEnd, int valueBegin, int valueEnd) {
+                    int threadNo = holder.getThreadNO();
+                    if (threadNo < 0 || threadNo >= threadContextArray.length) {
+                        return true;
+                    }
+                    ThreadContext ctx = threadContextArray[threadNo];
+                    if (logType.equals("read")) {
+                        // Read log: on EV_OPEN_TAG at root, append file name to read log buffer.
+                        if (event == 1) { // EV_OPEN_TAG
+                            String fileName = "unknown";
+                            if (holder != null) {
+                                byte[] jobNameBytes = holder.getXmlName();
+                                int jobNameLen = holder.getXmlNameLength();
+                                if (jobNameBytes != null && jobNameLen > 0) {
+                                    try {
+                                        fileName = new String(jobNameBytes, 0, jobNameLen, java.nio.charset.StandardCharsets.UTF_8);
+                                    } catch (Exception e) {
+                                        // fileName remains "unknown"
+                                    }
+                                }
+                            }
+                            // Append to read log buffer
+                            java.lang.StringBuilder buffer = ctx.logBuffers.get("read");
+                            if (buffer == null) {
+                                buffer = new java.lang.StringBuilder();
+                                ctx.logBuffers.put("read", buffer);
+                            }
+                            buffer.append(fileName).append('\n');
+                            // Increment read log counter
+                            java.util.concurrent.atomic.AtomicInteger counter = ctx.logCounters.get("read");
+                            if (counter == null) {
+                                counter = new java.util.concurrent.atomic.AtomicInteger();
+                                ctx.logCounters.put("read", counter);
+                            }
+                            counter.incrementAndGet();
+                            // Flush if batch size reached
+                            if (counter.get() >= BATCH_SIZE) {
+                                flushLogBuffer(ctx, "read");
+                            }
+                            return true;
+                        }
+                        // For EV_CLOSE_TAG, we do nothing for read log (already logged at open)
+                        return true;
+                    } else if (logType.equals("success") || logType.equals("fail")) {
+                        // Success/Fail log: on EV_OPEN_TAG at root, do nothing.
+                        // On EV_CLOSE_TAG at root, we determine success/failure and log accordingly.
+                        if (event == 2) { // EV_CLOSE_TAG
+                            String fileName = "unknown";
+                            boolean success = true; // default to success
+                            if (holder != null) {
+                                byte[] jobNameBytes = holder.getXmlName();
+                                int jobNameLen = holder.getXmlNameLength();
+                                if (jobNameBytes != null && jobNameLen > 0) {
+                                    try {
+                                        fileName = new String(jobNameBytes, 0, jobNameLen, java.nio.charset.StandardCharsets.UTF_8);
+                                    } catch (Exception e) {
+                                        // fileName remains "unknown"
+                                    }
+                                }
+                            }
+                            // Get success flag from thread context
+                            success = ctx.getCurrentFileSuccess();
+                            java.lang.StringBuilder buffer = null;
+                            java.util.concurrent.atomic.AtomicInteger counter = null;
+                            if (success) {
+                                buffer = ctx.logBuffers.get("success");
+                                counter = ctx.logCounters.get("success");
+                            } else {
+                                buffer = ctx.logBuffers.get("fail");
+                                counter = ctx.logCounters.get("fail");
+                            }
+                            if (buffer == null) {
+                                buffer = new java.lang.StringBuilder();
+                                if (success) {
+                                    ctx.logBuffers.put("success", buffer);
+                                } else {
+                                    ctx.logBuffers.put("fail", buffer);
+                                }
+                            }
+                            if (counter == null) {
+                                counter = new java.util.concurrent.atomic.AtomicInteger();
+                                if (success) {
+                                    ctx.logCounters.put("success", counter);
+                                } else {
+                                    ctx.logCounters.put("fail", counter);
+                                }
+                            }
+                            buffer.append(fileName).append('\n');
+                            counter.incrementAndGet();
+                            // Flush if batch size reached
+                            if (counter.get() >= BATCH_SIZE) {
+                                if (success) {
+                                    flushLogBuffer(ctx, "success");
+                                } else {
+                                    flushLogBuffer(ctx, "fail");
+                                }
+                            }
+                            // Reset success flag for next file
+                            ctx.setCurrentFileSuccess(true);
+                            return true;
+                        }
+                        // For EV_OPEN_TAG, do nothing for success/fail logs
+                        return true;
+                    }
+                    return true;
+                }
+            };
+            try {
+                bp.rootRegist(logCallback, null);
+            } catch (Exception e) {
+                logError("Exception during log registration for logType: " + logType, e);
+                throw e;
+            }
+        }
 
         // Set thread count
-        xmlBluePrint.setThreadCount(threadContexts.size());
-        System.out.println("Registered paths with xmlBluePrint using " + threadContexts.size() + " threads");
+        bp.setThreadCount(threadContexts.size());
     }
 
     public static void ProcessFiles(String sourcePath, String destPath, List<ThreadContext> threadContexts, BPConfig config, xmlBluePrint bp) {
@@ -984,6 +986,22 @@ public class XML2TXT {
             for (Map.Entry<String, Integer> entry : fileTypeColumnCount.entrySet()) {
                 ctx.setColumnCount(entry.getKey(), entry.getValue());
             }
+        }
+
+        // Initialize column buffers for each fileType
+        for (ThreadContext ctx : threadContexts) {
+            for (String fileType : config.fileTypes) {
+                ctx.initColumnBuffer(fileType);
+            }
+        }
+
+        // Assign columnIndex per ColumnSpec (1-based within each fileType, excluding source column 0)
+        Map<String, Integer> nextColumnIndex = new HashMap<>();
+        for (ColumnSpec col : config.columns) {
+            String fileType = config.fileTypes.get(col.fileTypeIndex);
+            Integer idx = nextColumnIndex.getOrDefault(fileType, 1);
+            col.columnIndex = idx;
+            nextColumnIndex.put(fileType, idx + 1);
         }
 
         // Initialize writers for each fileType and log types (pending files)
@@ -1049,35 +1067,19 @@ public class XML2TXT {
             }
         }
 
-        // Register all callbacks with xmlBluePrint
-        RegisterPathsWithXmlBluePrint(config, threadContexts, bp);
-
-        // Get list of files to process
-        List<FileEntry> fileEntries = listAllFilesWithZip(sourcePath);
-        if (fileEntries.isEmpty()) {
-            log(LOG_LEVEL_INFO, "No .xml or .zip files found in: " + sourcePath);
-            // Still need to shutdown xmlBluePrint and close writers
+        
+        // Process files via depth-first walk
+        final AtomicInteger filesProcessed = new AtomicInteger(0);
+        File rootDir = new File(sourcePath);
+        if (!rootDir.exists() || !rootDir.isDirectory()) {
+            log(LOG_LEVEL_INFO, "Source path does not exist or is not a directory: " + sourcePath);
         } else {
-            log(LOG_LEVEL_INFO, "Found " + fileEntries.size() + " files to process.");
-
-            // Process each file
-            for (FileEntry entry : fileEntries) {
-                String fileName = entry.fileName;
-                byte[] bytes = entry.bytes;
-                int fileId = fileName.hashCode();
-
-                // Register the file in every ThreadContext
-                for (ThreadContext ctx : threadContexts) {
-                    ctx.registerFile(fileName, "", entry.relativePath); // fileType not needed, relativePath for column 0
-                }
-
-                // Submit file to xmlBluePrint
-                try {
-                    // Assuming bp.pushJob takes (byte[] data, int length, byte[] fileNameBytes, int fileNameLength)
-                    bp.pushJob(bytes, bytes.length, fileName.getBytes(StandardCharsets.UTF_8), fileName.length());
-                } catch (Exception e) {
-                    logError("Error submitting file " + fileName + " to xmlBluePrint: " + e.getMessage(), e);
-                }
+            processDirectory(rootDir, sourcePath, threadContexts, config, bp, filesProcessed);
+            int total = filesProcessed.get();
+            if (total == 0) {
+                log(LOG_LEVEL_INFO, "No .xml or .zip files found in: " + sourcePath);
+            } else {
+                log(LOG_LEVEL_INFO, "Found " + total + " files to process.");
             }
         }
 
@@ -1087,7 +1089,7 @@ public class XML2TXT {
 
         // Wait for completion with timeout
         log(LOG_LEVEL_INFO, "Waiting for xmlBluePrint to complete...");
-        long startTime = System.currentTimeMillis();
+        long startTime2 = System.currentTimeMillis();
         long timeoutMillis = 30000; // 30 seconds timeout
         while (!bp.isReadyToDown()) {
             try {
@@ -1096,7 +1098,7 @@ public class XML2TXT {
                 Thread.currentThread().interrupt();
                 break;
             }
-            if (System.currentTimeMillis() - startTime > timeoutMillis) {
+            if (System.currentTimeMillis() - startTime2 > timeoutMillis) {
                 logError("Timeout waiting for xmlBluePrint to complete.", null);
                 break;
             }
@@ -1118,35 +1120,36 @@ public class XML2TXT {
                         boolean flushed = false;
                         while (retryCount < maxRetries && !flushed) {
                             try {
-                                                writer.write(buffer.toString());
-                                                flushed = true;
-                                            } catch (IOException e) {
-                                                retryCount++;
-                                                if (e.getMessage() != null && (e.getMessage().contains("Permission denied") ||
+                                writer.write(buffer.toString());
+                                flushed = true;
+                            } catch (IOException e) {
+                                retryCount++;
+                                if (e.getMessage() != null && (e.getMessage().contains("Permission denied") ||
                                                               e.getMessage().contains("Access is denied"))) {
-                                                    System.err.println("Permission denied when flushing data buffer for fileType " + fileType + ", thread " + ctx.getThreadNo() + ": " + e.getMessage());
-                                                    // Don't retry on permission errors
-                                                    break;
-                                                } else if (e.getMessage() != null && e.getMessage().contains("No space left on device")) {
-                                                    System.err.println("Disk full when flushing data buffer for fileType " + fileType + ", thread " + ctx.getThreadNo() + ": " + e.getMessage());
-                                                    // Don't retry on disk full
-                                                    break;
-                                                } else if (retryCount >= maxRetries) {
-                                                    System.err.println("Failed to flush data buffer for fileType " + fileType + ", thread " + ctx.getThreadNo() + " after " + maxRetries + " attempts: " + e.getMessage());
-                                                } else {
-                                                    System.err.println("Error flushing data buffer for fileType " + fileType + ", thread " + ctx.getThreadNo() + " (attempt " + retryCount + "/" + maxRetries + "): " + e.getMessage());
-                                                    // Wait briefly before retrying
-                                                    try {
-                                                        Thread.sleep(100 * retryCount); // Exponential backoff
-                                                    } catch (InterruptedException ie) {
-                                                        Thread.currentThread().interrupt();
-                                                        break;
-                                                    }
-                                                }
-                                            }
-                                        }
+                                    System.err.println("Permission denied when flushing data buffer for fileType " + fileType + ", thread " + ctx.getThreadNo() + ": " + e.getMessage());
+                                    // Don't retry on permission errors
+                                    break;
+                                } else if (e.getMessage() != null && e.getMessage().contains("No space left on device")) {
+                                    System.err.println("Disk full when flushing data buffer for fileType " + fileType + ", thread " + ctx.getThreadNo() + ": " + e.getMessage());
+                                    // Don't retry on disk full
+                                    break;
+                                } else if (retryCount >= maxRetries) {
+                                    System.err.println("Failed to flush data buffer for fileType " + fileType + ", thread " + ctx.getThreadNo() + " after " + maxRetries + " attempts: " + e.getMessage());
+                                } else {
+                                    System.err.println("Error flushing data buffer for fileType " + fileType + ", thread " + ctx.getThreadNo() + " (attempt " + retryCount + "/" + maxRetries + "): " + e.getMessage());
+                                    // Wait briefly before retrying
+                                    try {
+                                        Thread.sleep(100 * retryCount); // Exponential backoff
+                                    } catch (InterruptedException ie) {
+                                        Thread.currentThread().interrupt();
+                                        break;
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+            }
             // Flush log buffers
             for (Map.Entry<String, StringBuilder> entry : ctx.logBuffers.entrySet()) {
                 String logType = entry.getKey();
@@ -1160,33 +1163,29 @@ public class XML2TXT {
                         boolean flushed = false;
                         while (retryCount < maxRetries && !flushed) {
                             try {
-                                                writer.write(buffer.toString());
-                                                flushed = true;
-                                            } catch (IOException e) {
-                                                retryCount++;
-                                                if (e.getMessage() != null && (e.getMessage().contains("Permission denied") ||
+                                writer.write(buffer.toString());
+                                flushed = true;
+                            } catch (IOException e) {
+                                retryCount++;
+                                if (e.getMessage() != null && (e.getMessage().contains("Permission denied") ||
                                                               e.getMessage().contains("Access is denied"))) {
-                                                    System.err.println("Permission denied when flushing log buffer for logType " + logType + ", thread " + ctx.getThreadNo() + ": " + e.getMessage());
-                                                    // Don't retry on permission errors
-                                                    break;
-                                                } else if (e.getMessage() != null && e.getMessage().contains("No space left on device")) {
-                                                    System.err.println("Disk full when flushing log buffer for logType " + logType + ", thread " + ctx.getThreadNo() + ": " + e.getMessage());
-                                                    // Don't retry on disk full
-                                                    break;
-                                                } else if (retryCount >= maxRetries) {
-                                                    System.err.println("Failed to flush log buffer for logType " + logType + ", thread " + ctx.getThreadNo() + " after " + maxRetries + " attempts: " + e.getMessage());
-                                                } else {
-                                                    System.err.println("Error flushing log buffer for logType " + logType + ", thread " + ctx.getThreadNo() + " (attempt " + retryCount + "/" + maxRetries + "): " + e.getMessage());
-                                                    // Wait briefly before retrying
-                                                    try {
-                                                        Thread.sleep(100 * retryCount); // Exponential backoff
-                                                    } catch (InterruptedException ie) {
-                                                        Thread.currentThread().interrupt();
-                                                        break;
-                                                    }
-                                                }
-                                            }
-                                        }
+                                    System.err.println("Permission denied when flushing log buffer for logType " + logType + ", thread " + ctx.getThreadNo() + ": " + e.getMessage());
+                                    // Don't retry on permission errors
+                                    break;
+                                } else if (e.getMessage() != null && e.getMessage().contains("No space left on device")) {
+                                    System.err.println("Disk full when flushing log buffer for logType " + logType + ", thread " + ctx.getThreadNo() + ": " + e.getMessage());
+                                    // Don't retry on disk full
+                                    break;
+                                } else if (retryCount >= maxRetries) {
+                                    System.err.println("Failed to flush log buffer for logType " + logType + ", thread " + ctx.getThreadNo() + " after " + maxRetries + " attempts: " + e.getMessage());
+                                } else {
+                                    System.err.println("Error flushing log buffer for logType " + logType + ", thread " + ctx.getThreadNo() + " (attempt " + retryCount + "/" + maxRetries + "): " + e.getMessage());
+                                    // Wait briefly before retrying
+                                    try {
+                                        Thread.sleep(100 * retryCount); // Exponential backoff
+                                    } catch (InterruptedException ie) {
+                                        Thread.currentThread().interrupt();
+                                        break;
                                     }
                                 }
                             }
@@ -1199,11 +1198,7 @@ public class XML2TXT {
         // Close all writers
         log(LOG_LEVEL_INFO, "Closing all writers...");
         for (ThreadContext ctx : threadContexts) {
-            try {
-                ctx.flushAndClose();
-            } catch (IOException e) {
-                logError("Error closing writers for thread " + ctx.getThreadNo() + ": " + e.getMessage(), e);
-            }
+            ctx.flushAndClose();
         }
 
         // Rename pending → final files (append timestamp)
@@ -1242,8 +1237,8 @@ public class XML2TXT {
             }
             // Rename log files
             for (String logType : Arrays.asList("read", "success", "fail")) {
-                String pendingName = logType + "_pending";
-                String finalName = logType + "_" + timestamp + ".txt";
+                String pendingName = logType + "_" + threadStr + "_pending";
+                String finalName = logType + "_" + threadStr + "_" + timestamp + ".txt";
                 File pendingFile = new File(destDir, pendingName);
                 File finalFile = new File(destDir, finalName);
                 if (pendingFile.exists()) {
@@ -1285,7 +1280,6 @@ public class XML2TXT {
 
         log(LOG_LEVEL_INFO, "Processing completed.");
     }
-
 
 
     public static void WriteOutputFileTest(int threadNo, String fileId, String data) {
@@ -1419,7 +1413,7 @@ public class XML2TXT {
                             validateDataFile(finalFile, fileType, threadNo, timestamp);
                             log(LOG_LEVEL_INFO, "Output file validation passed: " + finalName);
                         } catch (IOException e) {
-                            log(LOG_LEVEL_ERROR, "Validation failed for output file " + finalName + ": " + e.getMessage(), e);
+                            logError("Validation failed for output file " + finalName + ": " + e.getMessage(), e);
                         }
                     }
                 }
@@ -1440,7 +1434,7 @@ public class XML2TXT {
                         validateLogFile(finalFile, logType, threadContexts);
                         log(LOG_LEVEL_INFO, "Log file validation passed: " + finalName);
                     } catch (IOException e) {
-                        log(LOG_LEVEL_ERROR, "Validation failed for log file " + finalName + ": " + e.getMessage(), e);
+                        logError("Validation failed for log file " + finalName + ": " + e.getMessage(), e);
                     }
                 }
             }
@@ -1451,7 +1445,7 @@ public class XML2TXT {
      * Validates a data output file.
      * @param file The file to validate
      * @param fileType The file type (from .bp file)
-     * @param threadNo The thread number
+     * @@threadNo The thread number
      * @param timestamp The timestamp used in the file name
      * @throws IOException If validation fails
      */
@@ -1561,12 +1555,10 @@ public class XML2TXT {
     // FileInfo class to hold file information
     public static class FileInfo {
         public final String fileName;
-        public final String fileType;
         public final String relativePath;
 
-        public FileInfo(String fileName, String fileType, String relativePath) {
+        public FileInfo(String fileName, String relativePath) {
             this.fileName = fileName;
-            this.fileType = fileType;
             this.relativePath = relativePath;
         }
     }
@@ -1603,9 +1595,9 @@ public class XML2TXT {
             return threadNo;
         }
 
-        public void registerFile(String fileName, String fileType, String entityPath) {
+        public void registerFile(String fileName, String relativePath) {
             int fileId = fileName.hashCode();
-            fileIdMap.put(fileId, new FileInfo(fileName, fileType, entityPath));
+            fileIdMap.put(fileId, new FileInfo(fileName, relativePath));
         }
 
         public FileInfo getFileInfo(Integer fileId) {
@@ -1630,12 +1622,12 @@ public class XML2TXT {
         }
 
         public void setColumnValue(String fileType, int columnIndex, String value) {
+            System.out.println("SET COLUMN: fileType=" + fileType + ", columnIndex=" + columnIndex + ", value=" + value);
             String[] buffer = columnBuffers.get(fileType);
             if (buffer != null && columnIndex >= 0 && columnIndex < buffer.length) {
                 buffer[columnIndex] = value;
             }
         }
-
         public String buildRow(String fileType) {
             String[] buffer = columnBuffers.get(fileType);
             if (buffer == null) {
@@ -1742,36 +1734,29 @@ public class XML2TXT {
                 boolean flushed = false;
                 while (retryCount < maxRetries && !flushed) {
                     try {
-                                                    writer.write(buffer.toString());
-                                                    flushed = true;
-                                                } catch (IOException e) {
-                                                    retryCount++;
-                                                    if (e.getMessage() != null && (e.getMessage().contains("Permission denied") ||
-                                                              e.getMessage().contains("Access is denied"))) {
-                                                        System.err.println("Permission denied when flushing log buffer for logType " + logType + ": " + e.getMessage());
-                                                        // Don't retry on permission errors
-                                                        break;
-                                                    } else if (e.getMessage() != null && e.getMessage().contains("No space left on device")) {
-                                                        System.err.println("Disk full when flushing log buffer for logType " + logType + ": " + e.getMessage());
-                                                        // Don't retry on disk full
-                                                        break;
-                                                    } else if (retryCount >= maxRetries) {
-                                                        System.err.println("Failed to flush log buffer for logType " + logType + " after " + maxRetries + " attempts: " + e.getMessage());
-                                                    } else {
-                                                        System.err.println("Error flushing log buffer for logType " + logType + " (attempt " + retryCount + "/" + maxRetries + "): " + e.getMessage());
-                                                        // Wait briefly before retrying
-                                                        try {
-                                                            Thread.sleep(100 * retryCount); // Exponential backoff
-                                                        } catch (InterruptedException ie) {
-                                                            Thread.currentThread().interrupt();
-                                                            break;
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                        writer.write(buffer.toString());
+                        flushed = true;
+                    } catch (IOException e) {
+                        retryCount++;
+                        if (e.getMessage() != null && (e.getMessage().contains("Permission denied") ||
+                                                      e.getMessage().contains("Access is denied"))) {
+                            System.err.println("Permission denied when flushing log buffer for logType " + logType + ": " + e.getMessage());
+                            // Don't retry on permission errors
+                            break;
+                        } else if (e.getMessage() != null && e.getMessage().contains("No space left on device")) {
+                            System.err.println("Disk full when flushing log buffer for logType " + logType + ": " + e.getMessage());
+                            // Don't retry on disk full
+                            break;
+                        } else if (retryCount >= maxRetries) {
+                            System.err.println("Failed to flush log buffer for logType " + logType + " after " + maxRetries + " attempts: " + e.getMessage());
+                        } else {
+                            System.err.println("Error flushing log buffer for logType " + logType + " (attempt " + retryCount + "/" + maxRetries + "): " + e.getMessage());
+                            // Wait briefly before retrying
+                            try {
+                                Thread.sleep(100 * retryCount); // Exponential backoff
+                            } catch (InterruptedException ie) {
+                                Thread.currentThread().interrupt();
+                                break;
                             }
                         }
                     }
@@ -1788,25 +1773,141 @@ public class XML2TXT {
             counter.set(0);
         }
     }
-    public static class FileEntry {
-        public final byte[] bytes;
-        public final String fileName;
-        public final String originalPath;
-        public final String relativePath; // relative to the source directory
 
-        public FileEntry(byte[] bytes, String fileName, String originalPath, String relativePath) {
-            this.bytes = bytes;
-            this.fileName = fileName;
-            this.originalPath = originalPath;
-            this.relativePath = relativePath;
+    // Helper methods for streaming file processing
+    private static void processDirectory(File dir, String sourceRootPath, List<ThreadContext> threadContexts, BPConfig config, xmlBluePrint bp, AtomicInteger processedCount) {
+        File[] files = dir.listFiles();
+        if (files == null) {
+            return;
+        }
+        for (File file : files) {
+            if (file.isFile()) {
+                String name = file.getName();
+                String lowerName = name.toLowerCase();
+                String absolutePath = file.getAbsolutePath();
+                String relativePath = absolutePath;
+                if (absolutePath.startsWith(sourceRootPath)) {
+                    relativePath = absolutePath.substring(sourceRootPath.length());
+                    while (relativePath.startsWith(File.separator) || relativePath.startsWith("/")) {
+                        relativePath = relativePath.substring(1);
+                    }
+                    relativePath = relativePath.replace(File.separatorChar, '/');
+                } else {
+                    relativePath = name;
+                }
+                if (lowerName.endsWith(".xml")) {
+                    processXmlFile(file, absolutePath, relativePath, threadContexts, bp, processedCount);
+                } else if (lowerName.endsWith(".zip")) {
+                    processZipFile(file, absolutePath, relativePath, threadContexts, bp, processedCount);
+                }
+            } else if (file.isDirectory()) {
+                processDirectory(file, sourceRootPath, threadContexts, config, bp, processedCount);
+            }
         }
     }
 
-    public static void testTryCatch() {
+    private static void processXmlFile(File file, String absolutePath, String relativePath, List<ThreadContext> threadContexts, xmlBluePrint bp, AtomicInteger processedCount) {
+        // Register file in each ThreadContext
+        String fileName = file.getName();
+        for (ThreadContext ctx : threadContexts) {
+            ctx.registerFile(fileName, relativePath);
+        }
+        // Read file bytes
+        byte[] bytes;
         try {
-            System.out.println("In try block");
-        } catch (Exception e) {
-            System.out.println("In catch block");
+            bytes = java.nio.file.Files.readAllBytes(file.toPath());
+        } catch (IOException e) {
+            logError("Error reading XML file " + absolutePath + ": " + e.getMessage(), e);
+            return;
+        }
+        // Submit to bp with backpressure handling
+        submitJobWithBackpressure(bp, bytes, fileName);
+        processedCount.incrementAndGet();
+    }
+
+    private static void processZipFile(File zipFile, String absolutePath, String relativePath, List<ThreadContext> threadContexts, xmlBluePrint bp, AtomicInteger processedCount) {
+        try (ZipFile zf = new ZipFile(zipFile)) {
+            Enumeration<? extends ZipEntry> entries = zf.entries();
+            while (entries.hasMoreElements()) {
+                ZipEntry entry = entries.nextElement();
+                if (entry.isDirectory()) {
+                    continue;
+                }
+                String entryName = entry.getName();
+                String lowerEntryName = entryName.toLowerCase();
+                if (!lowerEntryName.endsWith(".xml")) {
+                    continue;
+                }
+                // Register this entry in each ThreadContext
+                // Note: relativePath is the path of the zip file itself (as passed)
+                String entryFileName = entryName; // the name inside zip
+                for (ThreadContext ctx : threadContexts) {
+                    ctx.registerFile(entryFileName, relativePath);
+                }
+                // Read entry bytes
+                byte[] bytes;
+                try (InputStream is = zf.getInputStream(entry)) {
+                    bytes = is.readAllBytes();
+                } catch (IOException e) {
+                    logError("Error reading ZIP entry " + entryName + " from " + absolutePath + ": " + e.getMessage(), e);
+                    continue;
+                }
+                // Submit to bp with backpressure handling
+                submitJobWithBackpressure(bp, bytes, entryFileName);
+                processedCount.incrementAndGet();
+            }
+        } catch (IOException e) {
+            logError("Error opening ZIP file " + absolutePath + ": " + e.getMessage(), e);
+        }
+    }
+
+    private static void submitJobWithBackpressure(xmlBluePrint bp, byte[] data, String fileName) {
+        byte[] nameBytes = fileName.getBytes(StandardCharsets.UTF_8);
+        int nameLength = nameBytes.length;
+        while (true) {
+            if (bp.pushJob(data, data.length, nameBytes, nameLength)) {
+                // successfully enqueued
+                break;
+            } else {
+                // queue full, wait a bit
+                try {
+                    Thread.sleep(10); // 10 ms
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    // break out? we'll just continue
+                }
+            }
+        }
+    }
+    public static class FileEntry {
+        public final String fileName;
+        public final String originalPath;
+        public final String relativePath; // relative to the source directory
+        public final boolean isZipEntry;
+        public final String zipEntryName; // valid only if isZipEntry is true
+
+        public FileEntry(String fileName, String originalPath, String relativePath, boolean isZipEntry, String zipEntryName) {
+            this.fileName = fileName;
+            this.originalPath = originalPath;
+            this.relativePath = relativePath;
+            this.isZipEntry = isZipEntry;
+            this.zipEntryName = zipEntryName;
+        }
+
+        public byte[] getBytes() throws IOException {
+            if (isZipEntry) {
+                try (ZipFile zipFile = new ZipFile(originalPath)) {
+                    ZipEntry entry = zipFile.getEntry(zipEntryName);
+                    if (entry == null) {
+                        throw new IOException("Entry not found in ZIP: " + zipEntryName);
+                    }
+                    try (InputStream inputStream = zipFile.getInputStream(entry)) {
+                        return inputStream.readAllBytes();
+                    }
+                }
+            } else {
+                return java.nio.file.Files.readAllBytes(new File(originalPath).toPath());
+            }
         }
     }
 }
