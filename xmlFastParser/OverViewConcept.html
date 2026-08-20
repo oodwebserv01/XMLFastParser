@@ -183,35 +183,47 @@ return h;</code></pre>
         <section id="thread-concept">
             <h3>4. Lock-Free Threading</h3>
 
-            <h4>Two-Level Ring Buffers</h4>
-            <div class="diagram">
-Global Queue (Blueprint, 16K):
-  Producer → [job][job][job]... → Distributor
+            <h3>Holder-Centric Job Distribution</h3>
+            <p>XMLFastReader does not use a central global queue. Instead, <code>pushJob()</code> distributes XML jobs directly to holder queues in a round‑robin manner. Each worker thread owns its holder and processes jobs from its own ring buffer.</p>
 
-Per-Holder Queue (Worker, 512 each):
-  Distributor → [job][job]... → Worker Thread
-            </div>
+            <h4>Holder Queue (Ring Buffer)</h4>
+            <pre><code>// Size: 2^N (configured via setQueSize(N); minimum N=1 => size=2)
+volatile byte[][] jobStart;
+volatile Object[] tokenFile;
+volatile int[] jobLength;
+volatile int cp = 0, pp = 0;
 
-            <h4>No Locks — Only:</h4>
+// Space available in holder queue:
+(cp - pp - 1) & (jobQueSize - 1)
+</code></pre>
+
+            <h4>Flow</h4>
+            <pre><code>Producer                    Workers (Holder)
+  │                           │
+  ├─ pushJob() ──────────────►│
+  │    (writes to holder[pp]) │
+  │                           │
+  │                           ├─ holder.nextJob() ───────►│
+  │                           │    (advances holder cp)   │
+  │                           │                           │
+  │                           │                    holder.nextJob()
+  │                           │                    (advances holder cp)
+  │                           │                           │
+  │                           │                    while(pointer < len)
+  │                           │                       TOC[state][byte].call()
+</code></pre>
+
+            <h4>Synchronization</h4>
             <ul>
-                <li><code>VarHandle.fullFence()</code> — memory barrier after slot write</li>
-                <li><code>volatile</code> pointers — visibility</li>
-                <li><code>LockSupport.park/unpark</code> — thread parking</li>
+                <li><strong>Memory barriers:</strong> <code>VarHandle.fullFence()</code> after slot writes, before pointer publish</li>
+                <li><strong>Park/Unpark:</strong> <code>LockSupport.parkNanos()</code> / <code>unpark()</code> — no locks</li>
+                <li><strong>Volatile pointers:</strong> <code>cp</code>/<code>pp</code> for visibility</li>
             </ul>
-
-            <h4>Thread Roles</h4>
-            <table>
-                <tr><th>Thread</th><th>Role</th></tr>
-                <tr><td>Distributor</td><td>Round-robins global jobs to holders</td></tr>
-                <tr><td>Worker N</td><td>Owns one holder; parses sequentially</td></tr>
-            </table>
 
             <div class="concept">
                 <h4>Key Property</h4>
                 <p><strong>Blueprint is read-only after init.</strong> TOC, path tree, log store never change. Each holder is single-threaded — no internal synchronization needed.</p>
             </div>
-        </section>
-
         <section id="predict-concept">
             <h4>Unregistered Branch Handling (No Depth Limit)</h4>
             <p>When the parser encounters elements not in registered paths, it enters skip mode:</p>

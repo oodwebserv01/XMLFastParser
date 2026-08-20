@@ -400,18 +400,18 @@ bp.run();</code></pre>
             <tr><th>Parameter</th><th>Description</th></tr>
             <tr><td><code>xmlBytes</code></td><td>Raw XML byte array</td></tr>
             <tr><td><code>length</code></td><td>Valid bytes in array</td></tr>
-            <tr><td><code>tokenFile</code></td><td>Token object for identification (can be filename, ID, or any object)</td></tr>
+            <tr><td><code>tokenFile</td><td>Token object for identification (can be filename, ID, or any object)</td></tr>
         </table>
 
         <h3>Backpressure Handling</h3>
-        <pre><code>while (bp.jobQueSpace() == 0) {
-    Thread.sleep(50);  // Wait for queue space
+        <p>Since <code>pushJob()</code> returns <code>false</code> only when all holder queues are full, a simple busy‑wait with sleep can be used:</p>
+        <pre><code>while (!bp.pushJob(xmlBytes, length, tokenFile)) {
+    Thread.sleep(50);
 }
-bp.pushJob(...);</code></pre>
+</code></pre>
 
-        <p>Returns <code>false</code> if queue is full (size: 16,384 jobs).</p>
+        <p>Returns <code>false</code> if all holder queues are full.</p>
     </section>
-
     <section id="lifecycle">
         <h2>7. Lifecycle Control</h2>
 

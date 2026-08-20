@@ -294,34 +294,28 @@ TOC[S_TARGET_ATTR]['>'] = HD_NOVAL_ATTR;</code></pre>
     <section id="threading">
         <h2>6. Threading Model & Job Queues</h2>
 
-        <h3>Two-Level Ring Buffers</h3>
+        <h3>Holder-Centric Job Distribution</h3>
+        <p>XMLFastReader does not use a central global queue. Instead, <code>pushJob()</code> distributes XML jobs directly to holder queues in a round‑robin manner. Each worker thread owns its holder and processes jobs from its own ring buffer.</p>
 
-        <h4>Global Queue (Blueprint)</h4>
-        <pre><code>// Size: 2^14 = 16,384
-volatile byte[][] jobStart, jobName;
-volatile int[] jobLength, jobNameLength;
-volatile int cp = 0, pp = 0;  // consumer / producer
-
-// Space available:
-(cp - pp - 1) & 0x3FFF</code></pre>
-
-        <h4>Per-Holder Queue (Worker)</h4>
-        <pre><code>// Size: 2^9 = 512 (per thread)
+        <h4>Holder Queue (Ring Buffer)</h4>
+        <pre><code>// Size: 2^N (configured via setQueSize(N); minimum N=1 => size=2)
 volatile byte[][] jobStart;
 volatile Object[] tokenFile;
 volatile int[] jobLength;
-volatile int cp = 0, pp = 0;</code></pre>
+volatile int cp = 0, pp = 0;
+
+// Space available in holder queue:
+(cp - pp - 1) & (jobQueSize - 1)
+</code></pre>
 
         <h3>Flow</h3>
-        <pre><code>Producer                    Distributor                  Workers
-  │                           │                           │
-  ├─ pushJob() ──────────────►│                           │
-  │    (writes to global[pp]) │                           │
-  │                           ├─ nextJob() ──────────────►│
-  │                           │    (advances global cp)   │
-  │                           │                           │
-  │                           ├─ holder.pushJob() ───────►│
-  │                           │    (writes to holder[pp]) │
+        <pre><code>Producer                    Workers (Holder)
+  │                           │
+  ├─ pushJob() ──────────────►│
+  │    (writes to holder[pp]) │
+  │                           │
+  │                           ├─ holder.nextJob() ───────►│
+  │                           │    (advances holder cp)   │
   │                           │                           │
   │                           │                    holder.nextJob()
   │                           │                    (advances holder cp)

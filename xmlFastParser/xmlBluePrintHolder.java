@@ -213,13 +213,25 @@ public class xmlBluePrintHolder {
         return this.threadNo;
     }
 
-    private final int jobQueSize = 0x200; // ขนาดของคิวงานที่สามารถเก็บได้ 
-    private final int jobQueMask = jobQueSize-1;
+    private int jobQueSize;
+    private int jobQueMask;
 
-    /* -- Ring Type Job Queue size 2^n -- */
-    volatile Object[] tokenFile = new Object[jobQueSize]; // byte[] ชื่อไฟล์
-    volatile byte[][] jobStart = new byte[jobQueSize][]; // byte[] แต่ละงาน
-    volatile int[] jobLength = new int[jobQueSize]; // ขนาดของงาน
-    volatile int cp = 0;
-    volatile int pp = 0;
+    /* -- Ring Type Job Queue size 2^N -- */
+    volatile Object[] tokenFile;
+    volatile byte[][] jobStart;
+    volatile int[] jobLength;
+    volatile int cp;
+    volatile int pp;
+
+    public xmlBluePrintHolder(int Nof2Power) {
+        // Ensure exponent at least 1 (queue size >= 2)
+        if (Nof2Power < 1) Nof2Power = 1;
+        int size = 1 << Nof2Power; // 2^Nof2Power
+        this.jobQueSize = size;
+        this.jobQueMask = size - 1;
+        this.tokenFile = new Object[size];
+        this.jobStart = new byte[size][];
+        this.jobLength = new int[size];
+    }
+    
 }
