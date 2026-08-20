@@ -238,8 +238,16 @@ bp.rootRegist(rootHandler, "root");
         ? new String(buf, valueBegin, valueEnd - valueBegin)
         : "";
 
-    // Job identifier
-    String jobName = new String(holder.getXmlName(), 0, holder.getXmlNameLength());
+    // Job identifier (tokenFile)
+    Object tokenFile = holder.getTokenFile();
+    String jobName;
+    if (tokenFile instanceof byte[]) {
+        jobName = new String((byte[]) tokenFile);
+    } else if (tokenFile instanceof String) {
+        jobName = (String) tokenFile;
+    } else {
+        jobName = String.valueOf(tokenFile);
+    }
 
     // Charset for correct decoding
     Charset cs = holder.charset;
@@ -386,14 +394,13 @@ bp.run();</code></pre>
         <h2>6. Submitting XML Jobs</h2>
 
         <h3>Push Job</h3>
-        <pre><code>boolean success = bp.pushJob(xmlBytes, length, nameBytes, nameLength);</code></pre>
+        <pre><code>boolean success = bp.pushJob(xmlBytes, length, tokenFile);</code></pre>
 
         <table>
             <tr><th>Parameter</th><th>Description</th></tr>
             <tr><td><code>xmlBytes</code></td><td>Raw XML byte array</td></tr>
             <tr><td><code>length</code></td><td>Valid bytes in array</td></tr>
-            <tr><td><code>nameBytes</code></td><td>Identifier (filename, ID) as bytes</td></tr>
-            <tr><td><code>nameLength</code></td><td>Valid bytes in name</td></tr>
+            <tr><td><code>tokenFile</code></td><td>Token object for identification (can be filename, ID, or any object)</td></tr>
         </table>
 
         <h3>Backpressure Handling</h3>

@@ -67,31 +67,43 @@ Usage Instructions
    * Used internally for path registration and tag matching during parsing
    * Public API available for custom hash-based lookups
  */
-   public xmlBluePrint() {
-       // Initialize instance-specific state
-       this.root = new xmlBluePrintNode();
-       this.threadCount = 0;
-       this.holders = null;
-       this.workerThreads = null;
-       this.distributorThread = null;
-       this.running = false;
-       this.paused = false;
-       this.shuttingdown = false;
-       this.forceShutdown = false;
-       this.logHead = 0;
-       this.logCount = 0;
-       this.cp = 0;
-       this.pp = 0;
-       this.jobName = new byte[jobQueSize][];
-       this.jobNameLength = new int[jobQueSize];
-       this.jobStart = new byte[jobQueSize][];
-       this.jobLength = new int[jobQueSize];
-       this.logStore = new LogEntry[MAX_LOGS];
-       this.TOC = new CELL[xmlState_MAX][256];
-       initializeTOC();
-   }
 
-   public static void regist(String path, xmlBluePrintCall handler, Object token) {
+   // ============================================================
+   // API 
+   // ============================================================
+   public static final long hash(byte[] buff, int length) { // FNV_1a
+      return hash(buff, 0, length);
+   };
+   
+   public static final long hash(byte[] buff, int begin, int end) { // FNV_1a
+      long h = 0xCBF29CE484222325L; // FNV offset basis
+      for (int i = begin; i < end; i++) {
+         byte v = buff[i];
+         if (v == ':' || v == '}') break;
+         h ^= (v & 0xFF);
+         h *= 0x100000001B3L;      // FNV prime
+      }
+      // SplitMix64 finalizer
+      h ^= h >>> 33;
+      h *= 0xFF51AFD7ED558CCDL;
+      h ^= h >>> 33;
+      h *= 0xC4CEB9FE1A85EC53L;
+      h ^= h >>> 33;
+      return h;
+   };
+
+   public void rootRegist(xmlBluePrintCall handler, Object token) {
+       rootHandler = handler;
+       rootToken = token;
+       root.HD_CLOSINGTAG = HD_CLOSINGROOT;
+   };
+
+   public void errorRegist(xmlBluePrintCall handler, Object token) {
+       errorHandler = handler;
+       errorToken = token;
+   };
+
+   public void regist(String path, xmlBluePrintCall handler, Object token) {
        // Check if path is null, empty, or doesn't start with '/'
        if (path == null || path.isEmpty() || path.charAt(0) != '/') {
            throw new IllegalArgumentException("Path must start with '/'");
@@ -131,268 +143,18 @@ Usage Instructions
        }
    };
 
-   public static void setThreadCount(int c) {
+   public void setThreadCount(int c) {
       threadCount = c;
       holders = new xmlBluePrintHolder[c];
       workerThreads = new Thread[c];
    };
-
-   static final boolean isSpace(byte x){
-      return (' '==x || '\r'==x || '\n'==x || '\t'==x);
-   };
-
-   public static final long hash(byte[] buff, int length) { // FNV_1a
-      return hash(buff, 0, length);
-   };
-   
-   public static final long hash(byte[] buff, int begin, int end) { // FNV_1a
-      long h = 0xCBF29CE484222325L; // FNV offset basis
-      for (int i = begin; i < end; i++) {
-         byte v = buff[i];
-         if (v == ':' || v == '}') break;
-         h ^= (v & 0xFF);
-         h *= 0x100000001B3L;      // FNV prime
-      }
-      // SplitMix64 finalizer
-      h ^= h >>> 33;
-      h *= 0xFF51AFD7ED558CCDL;
-      h ^= h >>> 33;
-      h *= 0xC4CEB9FE1A85EC53L;
-      h ^= h >>> 33;
-      return h;
-   };
-
-   static xmlBluePrintNode root = new xmlBluePrintNode(); // root of structure Tree
-   static xmlBluePrintCall rootHandler = null;
-   static Object rootToken = null;
-
-   public static void rootRegist(xmlBluePrintCall handler, Object token) {
-       rootHandler = handler;
-       rootToken = token;
-       root.HD_CLOSINGTAG = HD_CLOSINGROOT;
-   };
-
-   // Error handler and token (set via errorRegist)
-   private static xmlBluePrintCall errorHandler = null;
-   private static Object errorToken = null;
-
-   public static void errorRegist(xmlBluePrintCall handler, Object token) {
-       errorHandler = handler;
-       errorToken = token;
-   };
-
-   // set number of worker thread 
-   private static int threadCount = 0;
-   private static Thread[] workerThreads = null;
-   private static Thread distributorThread = null;
-   private static xmlBluePrintHolder[] holders = null;
-   static volatile boolean running = false; // Used to start only once
-   static volatile boolean paused = false; // Used to freeze job
-   static volatile boolean shuttingdown = false; // Used to notify shutting down
-   static volatile boolean forceShutdown = false; // Used to force shutdown
-
-   // ============================================================
-   // Log-based Predictive Shortcuts
-   // ============================================================
-
-   /**
-    * Log entry representing structural fingerprint of one XML file.
-    * Contains sequence of (distance, targetTagHash) pairs.
-    */
-   public static class LogEntry {
-      public final long[] distances;  // bytes from root/target to next target
-      public final long[] hashes;     // FNV-1a hash of target tag names
-      public final int size;          // valid entries
-
-      public LogEntry(long[] distances, long[] hashes, int size) {
-         this.distances = distances;
-         this.hashes = hashes;
-         this.size = size;
-      }
-
-      public LogEntry(long[] distances, long[] hashes) {
-         this(distances, hashes, Math.min(distances.length, hashes.length));
-      }
-   }
-
-   // Central log store (ring buffer)
-   private static final int MAX_LOGS = 10000;
-   private static final LogEntry[] logStore = new LogEntry[MAX_LOGS];
-   private static int logHead = 0;
-   private static int logCount = 0;
-
-   /**
-    * Called by holder when job completes to store its log.
-    */
-   public static void collectLog(LogEntry log) {
-      if (log == null || log.size == 0) return;
-      logStore[logHead] = log;
-      logHead = (logHead + 1) % MAX_LOGS;
-      if (logCount < MAX_LOGS) logCount++;
-   }
-
-   /**
-    * Find best matching log for an emerging fingerprint.
-    * Returns null if no logs stored yet.
-    */
-   public static LogEntry findBestMatch(LogEntry emerging) {
-      if (logCount == 0 || emerging == null || emerging.size == 0) return null;
-
-      LogEntry best = null;
-      double bestScore = -1.0;
-
-      for (int i = 0; i < logCount; i++) {
-         LogEntry stored = logStore[i];
-         if (stored == null) continue;
-         double score = score(stored, emerging);
-         if (score > bestScore) {
-            bestScore = score;
-            best = stored;
-         }
-      }
-      return best;
-   }
-
-   /**
-    * Score similarity between stored log and emerging log.
-    * Combines tag sequence match (70%) and distance ratio match (30%).
-    */
-   private static double score(LogEntry stored, LogEntry emerging) {
-      int maxLen = Math.max(stored.size, emerging.size);
-      if (maxLen == 0) return 0.0;
-
-      // Tag sequence: longest common prefix
-      int commonPrefix = 0;
-      int minLen = Math.min(stored.size, emerging.size);
-      for (int i = 0; i < minLen; i++) {
-         if (stored.hashes[i] == emerging.hashes[i]) commonPrefix++;
-         else break;
-      }
-      double tagScore = (double) commonPrefix / maxLen;
-
-      // Distance ratios for common prefix region
-      double distScore = 1.0;
-      if (commonPrefix > 1) {
-         double ratioSum = 0.0;
-         for (int i = 1; i < commonPrefix; i++) {
-            double storedRatio = (double) stored.distances[i] / stored.distances[i - 1];
-            double emergingRatio = (double) emerging.distances[i] / emerging.distances[i - 1];
-            double maxRatio = Math.max(storedRatio, emergingRatio);
-            if (maxRatio > 0) {
-               ratioSum += 1.0 - Math.abs(storedRatio - emergingRatio) / maxRatio;
-            }
-         }
-         distScore = ratioSum / (commonPrefix - 1);
-      }
-
-      return 0.7 * tagScore + 0.3 * distScore;
-   }
-
-   /**
-    * Get all collected logs (for inspection/debugging).
-    * Returns a snapshot of current log store.
-    */
-   public static LogEntry[] getCollectedLogs() {
-      LogEntry[] result = new LogEntry[logCount];
-      for (int i = 0; i < logCount; i++) {
-         int idx = (logHead - logCount + i + MAX_LOGS) % MAX_LOGS;
-         result[i] = logStore[idx];
-      }
-      return result;
-   }
-
-   // ============================================================
-   // Prediction Verification
-   // ============================================================
-
-   /**
-    * Verify that the predicted target matches the actual parsed target.
-    * If mismatch, invalidate prediction and fall back to normal FSM.
-    */
-   private static void verifyPrediction(xmlBluePrintHolder holder, int actualOffset, long actualHash) {
-      if (holder.predictedLog == null || holder.predictedIndex >= holder.predictedLog.size) {
-         return;
-      }
-
-      long predictedDist = holder.predictedLog.distances[holder.predictedIndex];
-      long predictedHash = holder.predictedLog.hashes[holder.predictedIndex];
-      int predictedOffset = (holder.predictedIndex == 0 && holder.rootOffset >= 0)
-         ? holder.rootOffset + (int)predictedDist
-         : holder.lastTargetOffset + (int)predictedDist;
-
-      if (actualHash != predictedHash || actualOffset != predictedOffset) {
-         holder.predictionValid = false;
-         holder.predictionActive = false;
-         // Fallback: continue normal FSM
-      } else {
-         holder.predictedIndex++;
-      }
-   }
-
-   /**
-    * Verify that the tag at current pointer matches the expected hash.
-    * Reads tag name starting at pointer and hashes it for comparison.
-    */
-private static boolean verifyTagAtPointer(xmlBluePrintHolder holder, long expectedHash) {
-      byte[] buf = holder.jobStart[holder.cp];
-      int originalPtr = holder.pointer;
-      int len = holder.jobLength[holder.cp];
-
-      final int TOLERANCE = 5;
-
-      // 1. ตั้งกรอบค้นหา (Clamp ขอบเขตความปลอดภัย)
-      int minDelta = Math.max(-TOLERANCE, -originalPtr);
-      int maxDelta = Math.min(TOLERANCE, len - 1 - originalPtr);
-
-      // วนลูปสแกนในกรอบ
-      for (int delta = minDelta; delta <= maxDelta; delta++) {
-         int ptr = originalPtr + delta;
-
-         // 2. Scan for '<' : ถ้าไม่ใช่ ให้ข้ามไป (ถ้าหาไม่เจอเลยในกรอบ ลูปก็จะจบและคืนค่า false ด้านล่าง)
-         if (buf[ptr] != '<') {
-            continue;
-         }
-
-         // 3. Check hashTagName (เมื่อเจอ '<' แล้ว ค่อยอ่านชื่อและแฮช)
-         int tempPtr = ptr + 1; // ข้าม '<'
-         int nameStart = tempPtr;
-         
-         while (tempPtr < len) {
-            byte b = buf[tempPtr];
-            if (b == '>' || b == '/' || b == ' ' || b == '\t' || b == '\n' || b == '\r') break;
-            tempPtr++;
-         }
-         int nameEnd = tempPtr;
-
-         if (nameEnd <= nameStart) continue;
-
-         long actualHash = hash(buf, nameStart, nameEnd);
-         
-         if (actualHash == expectedHash) {
-            holder.pointer = ptr; // อัปเดตพิกัดจริงที่เจอทันที
-            return true;
-         }
-      }
-
-      // ถ้าวนจนหมดกรอบแล้วไม่เจอ '<' ที่ Hash ตรงกันเลย -> คืนค่า false (Fallback ไป FSM)
-      return false;
-}
-
-   // this function for checking status if Parser is ready to down;
-   public static boolean isReadyToDown(){
-      boolean ret = true;
-      for (int i = holders.length-1; i>=0; i-- ) {
-         ret &= holders[i].ready2down;
-      }
-      return ret;
-   }
 
    /**
    * Starts the parser threads. Returns false if rootHandler is not registered,
    * because without a root handler we cannot guarantee the EV_CLOSE_TAG
    * emission contract.
    */
-public boolean run(){
+   public boolean run(){
       // Check if not already running to prevent multiple starts
       if (!running) {
          // If no root handler registered, we cannot guarantee the close-tag
@@ -415,6 +177,7 @@ public boolean run(){
 
          for (int i = 0; i < this.threadCount; i++) {
             this.holders[i] = new xmlBluePrintHolder();
+            this.holders[i] .bluePrint = this;
             final int holderIndex = i;
             this.workerThreads[i] = new Thread(() -> {
                xmlBluePrintHolder holder = holders[holderIndex];
@@ -490,19 +253,43 @@ public boolean run(){
                      long[] finalHash = new long[holder.logSize];
                      System.arraycopy(holder.logDistances, 0, finalDist, 0, holder.logSize);
                      System.arraycopy(holder.logHashes, 0, finalHash, 0, holder.logSize);
-                     xmlBluePrint.collectLog(new xmlBluePrint.LogEntry(finalDist, finalHash, holder.logSize));
+                     collectLog(new xmlBluePrint.LogEntry(finalDist, finalHash, holder.logSize));
                   }
                }
 
             }, "xml-worker-" + i);
             this.workerThreads[i].start();
          }
-
-         this.distributorThread = new Thread(this::jobDistributor, "xml-distributor");
-         this.distributorThread.start();
-         // Successfully started distributor and worker threads
-         return true;
       }
+      // Successfully started distributor and worker threads
+      return true;
+   };
+
+   public boolean pushJob(byte[] start, int length, Object tokenFile) {
+      int attempts = 0;
+      while (attempts < threadCount) {
+         xmlBluePrintHolder holder = holders[nextHolder];
+         if (holder.pushJob(start, length, tokenFile)) {
+            // Successfully pushed to holder
+            nextHolder = (nextHolder + 1) % threadCount;
+            return true;
+         }
+         // move to next holder
+         nextHolder = (nextHolder + 1) % threadCount;
+         attempts++;
+      }
+      // all holders full
+      this.run();
+      return false;
+   };
+
+   // this function for checking status if Parser is ready to down;
+   public boolean isReadyToDown(){
+      boolean ret = true;
+      for (int i = holders.length-1; i>=0; i-- ) {
+         ret &= holders[i].ready2down;
+      }
+      return ret;
    };
 
    /**
@@ -511,10 +298,6 @@ public boolean run(){
     */
    public void pause() {
       paused = true;
-      // Wake up distributor so it can check paused flag
-      if (distributorThread != null) {
-         LockSupport.unpark(distributorThread);
-      }
    };
 
    /**
@@ -522,10 +305,6 @@ public boolean run(){
     */
    public void resume() {
       paused = false;
-      // Wake up all threads
-      if (distributorThread != null) {
-         LockSupport.unpark(distributorThread);
-      }
       if (workerThreads != null) {
          for (Thread t : workerThreads) {
             if (t != null) LockSupport.unpark(t);
@@ -541,26 +320,12 @@ public boolean run(){
       if (shuttingdown) return; // already shuttingdown
       shuttingdown = true;
       
-      // Wake up distributor to exit its wait loop
-      if (distributorThread != null) {
-         LockSupport.unpark(distributorThread);
-      }
-      
       // Wake up all worker threads
       if (workerThreads != null) {
          for (Thread t : workerThreads) {
             if (t != null) LockSupport.unpark(t);
          }
       }
-
-      // Wait for main queue to drain
-      while (!forceShutdown && cp != pp) LockSupport.parkNanos(1_000_000L);
-      // Join distributor
-      if (distributorThread != null) {
-         try { distributorThread.join(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-      }
-
-
 
       // wait for all workers done
       boolean ready2down,jobDone,ready;
@@ -583,1082 +348,63 @@ public boolean run(){
       }
       
       // Clean up
-      distributorThread = null;
       workerThreads = null;
       holders = null;
       running = false;
    };
 
-   public final int jobQueSize = 0x4000;
-   private final int jobQueMask = jobQueSize-1;
-       /* Ring Type Job Queue size 2^14 */
-   private volatile byte[][] jobName = new byte[jobQueSize][]; // byte[] ชื่อไฟล์
-   private volatile int[] jobNameLength = new int[jobQueSize]; // ขนาดชื่อไฟล์
-   private volatile byte[][] jobStart = new byte[jobQueSize][]; // byte[] แต่ละงาน
-   private volatile int[] jobLength = new int[jobQueSize]; // ขนาดของงาน
-   private volatile int cp = 0; // ชี้ งานรออ่าน
-   private volatile int pp = 0; // ชี้ที่ว่างต่อไป รองานเข้า
-
-   // VarHandle for StoreLoad barrier (array element visibility) - JDK 9+
-// Use static VarHandle.fullFence() method directly
-
-   // Check is there space in Queue
-   public int jobQueSpace() {
-      return (cp - pp - 1) & jobQueMask;
-   };
-
-   public boolean pushJob(byte[] start, int length, byte[] name, int nameLength) {
-      if (0 != ((cp - pp - 1) & jobQueMask)) {
-         int _pp = (pp + 1) & jobQueMask;
-         jobName[_pp] = name;
-         jobNameLength[_pp] = nameLength;
-         jobStart[_pp] = start;
-         jobLength[_pp] = length;
-         // StoreLoad barrier: ensure element writes visible before pp update
-         VarHandle.fullFence();
-         pp = _pp;
-         
-         if (distributorThread != null) {
-            LockSupport.unpark(distributorThread);
-         }
-         return true;
-      } else {
-         return false;
-      }
-   };
-
-   public boolean nextJob() {
-      int next = (cp + 1) & jobQueMask;
-      if (next != pp) {
-         cp = next;
-         return true;
-      } else {
-         return false;
-      }
-   };
-
-   /**
-    * Distributor thread function that assigns XML parsing jobs to worker threads.
-    * Runs in a loop to continuously fetch jobs from the queue and distribute them
-    * to available worker threads in a round-robin fashion.
-    * 
-    * Processing steps:
-    * 1. Wait for a job to become available in the queue
-    * 2. For each available job, attempt to assign it to the next worker thread
-    * 3. If a worker accepts the job, increment the pushed counter
-    * 4. Wait for at least one job to be processed before continuing
-    * 5. Rotate to the next worker thread (round-robin distribution)
-    * 6. If all workers are full, wait before trying again
-    * 7. Handle pause states by waiting until resumed
-    * 8. Exit when shutting down or force shutdown is requested
-    */
-   private void jobDistributor() {
-      
-      // wait until job come
-      while (cp==pp) LockSupport.parkNanos(10_000_000L);
-
-      int HolderIndex = 0;
-      // Distribute job at current cp
-      int pushed = 0;
-      // Now cp points to first valid job
-      while ( !(shuttingdown && cp == pp) && !forceShutdown) {
-
-         // Handle pause - wait until resumed
-         while (paused) LockSupport.parkNanos(50_000_000L);
-
-         if (holders[HolderIndex].pushJob(jobStart[cp], jobLength[cp], jobName[cp], jobNameLength[cp])) {
-            pushed++;
-            
-            // wait until at least 1 job
-            while (!shuttingdown && !nextJob()) LockSupport.parkNanos(50_000_000L); 
-         }
-         HolderIndex = (HolderIndex + 1 ) % threadCount;
-         
-         if (0==HolderIndex && 0==pushed) {
-            // all holders full
-            if (!shuttingdown) LockSupport.parkNanos(10_000_000L);  
-         } else {
-            pushed = 0; // reset counter;
-         }
-      }      
-   };
-
    // ============================================================
-   // State Constants
+   // ENGINE 
    // ============================================================
-   // OUTSIDE ROOT (0-7)
-   public static final int S_HEADER             = 0;
-   public static final int S_HEAD_LT            = 1;
-   public static final int S_HEADER_BANG        = 2;
-   public static final int S_HEADER_PI          = 3;
-   public static final int S_HEADER_DASH        = 5;
-   public static final int S_HEADER_2DASH       = 6;
-   public static final int S_HEADER_MINUS_DASH  = 7;
-   public static final int S_HEADER_MINUS_2DASH = 8;
-   public static final int S_HEADER_X        = 9;
-   public static final int S_HEADER_XM       = 10;
-   public static final int S_HEADER_XML      = 11;
-   public static final int S_HEADER_ATTR     = 12;
-   public static final int S_HEADER_E        = 13;
-   public static final int S_HEADER_C        = 14;  
-   public static final int S_EN              = 15;  
-   public static final int S_ENC             = 16;  
-   public static final int S_ENCO            = 17;  
-   public static final int S_ENCOD           = 18; 
-   public static final int S_ENCODI          = 19; 
-   public static final int S_ENCODIN         = 20; 
-   public static final int S_ENCODING        = 21; 
-   public static final int S_ENC_VALUE       = 22; 
-   public static final int S_ENC_QUOTE       = 23; 
-   public static final int S_ENC_DQUOTE      = 24; 
-   public static final int S_ENC_CHARSET     = 25;
-   public static final int S_CHR_C           = 26; 
-   public static final int S_CHR_CH          = 27; 
-   public static final int S_CHR_CHA         = 28; 
-   public static final int S_CHR_CHAR        = 29;  
-   public static final int S_CHR_CHARSE      = 30; 
-   public static final int S_CHR_CHARSET     = 31; 
-   public static final int S_ROOT_POSIBLE    = 32; 
-   public static final int S_ROOT_BEGIN      = 33; 
-   public static final int S_TAG_BEGIN       = 34;    
-   public static final int S_TARGET_INTAG    = 35;    
-   public static final int S_INTAG           = 36;       
-   public static final int S_NEXT_XML        = 37; 
-   public static final int S_TARGET_INNER    = 38; 
-   public static final int S_ATTR            = 39; 
-   public static final int S_VAL_ATTR        = 40;    
-   public static final int S_QUOTE_VALUE     = 41;   
-   public static final int S_DQUOTE_VALUE    = 42;   
-   public static final int S_VAL_VALUE       = 43;  
-   public static final int S_LT              = 44;  
-   public static final int S_BANG            = 45;  
-   public static final int S_DASH            = 46;  
-   public static final int S_2DASH           = 47;  
-   public static final int S_MINUS_DASH      = 48;  
-   public static final int S_MINUS_2DASH     = 49;  
-   public static final int S_PI              = 50;  
-
-
-   public static final int S_INNER           = 51;  
-   public static final int S_SLASH           = 52;  
-   public static final int S_GT_ONLY         = 53;  
-   public static final int S_UNREGIST_BRANCH = 54;  
-
-   public static final int xmlState_MAX      = 55;
-
- // CHILD TAG (18-20)
-
-   // Event types (สำหรับ handler interface)
-   public static final int EV_OPEN_TAG    = 1;
-   public static final int EV_CLOSE_TAG   = 2;
-   public static final int EV_ATTR        = 3;
-   public static final int EV_INNER_TEXT  = 4;
-  
-   public static final int EV_UNKNOWN_ERROR = 0;
-   public static final int EV_EOF_IN_ROOT = 1001;
-   public static final int EV_EXPECTED_END = 1002;
-   public static final int EV_END_NE_BEGIN = 1003;
-
-   /*--- TOC Handlling--- */
-
-   private static void HD_NEXT_XML(xmlBluePrintHolder holder) {
-      while (!shuttingdown && !holder.nextJob()) LockSupport.parkNanos(5_000_000L);      
-   };
-
-   private static final CELL HD_CLOSINGROOT = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.rootClosed = true;  // Mark root as properly closed
-         root.handler.call(rootToken,holder,EV_CLOSE_TAG,0,0,0,0);
-         HD_NEXT_XML(holder);
-      }
-   };   
-
-   /**
-    * Handles the closing of an XML tag.
-    * Called when parsing encounters a closing tag (e.g., </tag>).
-    * 
-    * Processing steps:
-    * 1. If the current node is a target node (registered path), call its handler for the close tag event
-    * 2. If the handler returns false, skip to the next XML document
-    * 3. Move back to the parent node
-    * 4. Set the appropriate state based on whether the parent is a target node
-    * 5. Set the value pointer to the current position
-    */
-   private static final CELL HD_CLOSINGTAG = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         if (holder.currentNode.isTarget) {
-            if (! holder.currentNode.handler.call(holder.currentNode.idToken,holder,EV_CLOSE_TAG,holder.tagName,holder.tagNameEnd,0,0)) {
-               HD_NEXT_XML(holder);
-               return ;
-            }
-         }
-         holder.currentNode = holder.currentNode.parent;
-         holder.xmlState = (holder.currentNode.isTarget)? S_TARGET_INNER: S_INNER;
-         holder.value = holder.pointer;
-      }
-   };      
 
    public CELL[][] TOC = new CELL[xmlState_MAX][256];
 
-   // Singleton ignore handler - default for all TOC entries
-   private static final CELL HD_SAMESTATE = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-          holder.pointer++;
-          return ;
-      }
-   };
-
-   private static final CELL SKIP2_HANDLER = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-          holder.pointer += 2;
-          return ;
-      }
-   };
-
-   private static final CELL SKIP3_HANDLER = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-          holder.pointer += 3;
-          return ;
-      }
-   };
-
-   private static final CELL SKIP4_HANDLER = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-          holder.pointer += 4;
-          return ;
-      }
-   };
-
-   private static final CELL HD_HEADER = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_HEADER;
-         return ;
-      }
-   };     
-
-   private static final CELL HD_HEAD_LT = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_HEAD_LT;
-         return ;
-      }
-   };
-
-   private static final CELL HD_HEADER_BANG = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_HEADER_BANG;
-         return ;
-      }
-   };      
-
-   private static final CELL HD_HEADER_DASH = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_HEADER_DASH;
-         return ;
-      }
-   };  
-
-   private static final CELL HD_HEADER_2DASH = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_HEADER_2DASH;
-         return ;
-      }
-   };     
-
-   private static final CELL HD_HEADER_MINUS_DASH = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_HEADER_MINUS_DASH;
-         return ;
-      }
-   };        
-
-   private static final CELL HD_HEADER_MINUS_2DASH = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_HEADER_MINUS_2DASH;
-         return ;
-      }
-   };       
-   
-   private static final CELL HD_HEADER_PI = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_HEADER_PI;
-         return ;
-      }
-   };     
-
-   private static final CELL HD_HEADER_X = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_HEADER_X;
-         return ;
-      }
-   };    
-
-   private static final CELL HD_HEADER_XM = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_HEADER_XM;
-         return ;
-      }
-   };
-
-   private static final CELL HD_HEADER_XML = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_HEADER_XML;
-         return ;
-      }
-   };   
-
-   private static final CELL HD_HEADER_ATTR = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_HEADER_XML;
-         return ;
-      }
-   };      
-
-   private static final CELL HD_HEADER_E = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_HEADER_E;
-         return ;
-      }
-   };      
-
-   private static final CELL HD_EN = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_EN;
-         return ;
-      }
-   };   
-
-   private static final CELL HD_ENC = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_ENC;
-         return ;
-      }
-   };  
-
-   private static final CELL HD_ENCO = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_ENCO;
-         return ;
-      }
-   };  
-
-   private static final CELL HD_ENCOD = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_ENCOD;
-         return ;
-      }
-   };  
-
-   private static final CELL HD_ENCODI = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_ENCODI;
-         return ;
-      }
-   };  
-
-   private static final CELL HD_ENCODIN = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_ENCODIN;
-         return ;
-      }
-   };  
-
-   private static final CELL HD_ENCODING = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_ENCODING;
-         return ;
-      }
-   };  
-
-   private static final CELL HD_ENC_VALUE = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_ENC_VALUE;
-         return ;
-      }
-   };  
-
-   private static final CELL HD_ENC_QUOTE = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_ENC_QUOTE;
-         holder.value = holder.pointer;
-         return ;
-      }
-   };  
-
-   private static final CELL HD_ENC_Q_VALUE = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.valEnd = ++holder.pointer; 
-
-         // Extract charset value from jobStart[cp] between value and valEnd-1
-         byte[] buf = holder.jobStart[holder.cp];
-         int valueStart = holder.value;
-         int valueEnd = holder.valEnd - 1; // exclusive end
-
-         // let trim befor anything
-         while (valueStart<=valueEnd && isSpace(buf[valueStart]))valueStart++;
-         while (valueStart<=valueEnd && isSpace(buf[valueEnd]))valueEnd--;
-
-         if (valueEnd > valueStart) {
-            // Extract the raw value bytes
-            int rawLen = valueEnd - valueStart;
-            System.arraycopy(buf, valueStart, holder.encodeBuff, 0, rawLen);
-            
-            // Convert to string for processing
-            String finalValue = new String(holder.encodeBuff,0,rawLen);
-            
-            // Try to create Charset object
-            try {
-               holder.charset = java.nio.charset.Charset.forName(finalValue);
-               holder.fHeaderCharset = true;
-            } catch (Exception e) {
-               // Invalid charset, keep default (null)
-            }
-         }         
-         holder.xmlState = S_HEADER;
-         return ;
-      }
-   };  
-
-   private static final CELL HD_ENC_DQUOTE = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_ENC_DQUOTE;
-         holder.value = holder.pointer;
-         return ;
-      }
-   };  
-
-   private static final CELL HD_ENC_CHARSET = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_ENC_CHARSET;
-         holder.value = holder.pointer-1;
-         return ;
-      }
-   };  
-
-   // เริ่มต้นเส้นทาง charset จาก S_HEADER_ATTR
-   private static final CELL HD_CHR_C = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_CHR_C;
-         return ;
-      }
-   };
-
-   private static final CELL HD_CHR_CH = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_CHR_CH;
-         return ;
-      }
-   };
-
-   private static final CELL HD_CHR_CHA = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_CHR_CHA;
-         return ;
-      }
-   };
-
-   private static final CELL HD_CHR_CHAR = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_CHR_CHAR;
-         return ;
-      }
-   };
-
-   private static final CELL HD_CHR_CHARSE = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_CHR_CHARSE;
-         return ;
-      }
-   };
-
-   private static final CELL HD_CHR_CHARSET = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_CHR_CHARSET;
-         return ;
-      }
-   };   
-
-   private static final CELL HD_HEAD_CHAR = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.tagName = holder.pointer++;
-         holder.xmlState = S_ROOT_POSIBLE;
-         return ;
-      }
-   };   
-
-   /**
-    * Checks if the current tag is the root tag by examining if it's a closing tag.
-    * Called when parsing encounters a tag name after '<' (e.g., in <tag> or </tag>).
-    * 
-    * Processing steps:
-    * 1. Check if the previous character was '/' (indicating a closing tag)
-    * 2. If it's a closing tag ('/'), move to S_HEADER state to process the closing
-    * 3. If it's an opening tag, move to S_ROOT_BEGIN state to continue processing
-    * 4. In both cases, increment the pointer appropriately
-    */
-   private static final CELL HD_ROOT_POSIBLE = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         if ('/' == holder.jobStart[holder.cp][holder.pointer-1]) {
-            holder.pointer++;
-            holder.xmlState = S_HEADER;
-         } else {
-            holder.pointer = holder.tagName+1;
-            holder.xmlState = S_ROOT_BEGIN;
-         }
-         return ;
-      }
-   };   
-
-   private static final CELL HD_ROOT_TAGNAME = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         // Capture hRootName use for close tag matching
-         holder.tagNameEnd = holder.pointer;
-         holder.hRootName = hash(holder.jobStart[holder.cp],holder.tagName,holder.tagNameEnd);
-         holder.currentNode = root;
-
-         // Initialize target distance log
-         holder.rootOffset = holder.tagName; // byte offset of '<root>'
-         holder.lastTargetOffset = -1;
-         holder.logSize = 0;
-         holder.predictedLog = null;
-         holder.predictedIndex = 0;
-         holder.predictionActive = false;
-         holder.predictionValid = true;
-         holder.rootClosed = false; // Ensure root closed flag is cleared on opening root
-
-         if (rootHandler != null ) {
-            if (! rootHandler.call(rootToken,holder,EV_OPEN_TAG,holder.tagName,holder.tagNameEnd,0,0)) {
-               HD_NEXT_XML(holder);
-               return ;
-            }
-            holder.xmlState = S_TARGET_INTAG;
-         } else {
-            holder.xmlState = S_INTAG;
-         }
-      }
-   };   
-
-   private static final CELL HD_TAGNAME = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.tagNameEnd = holder.pointer;
-         long hTagName = hash(holder.jobStart[holder.cp], holder.tagName, holder.tagNameEnd);
-
-         // If we are currently skipping an unregistered  branch (skipDepth > 0)
-         if (holder.skipDepth > 0) {
-            holder.xmlState = S_UNREGIST_BRANCH;
-            if (hTagName == holder.skipName) holder.skipDepth++;
-            return;
-         }
-
-         // Record skipName and enter skip mode
-         if (!holder.currentNode.hasChild(hTagName)) {
-            holder.xmlState = S_UNREGIST_BRANCH;         
-            holder.skipName = hTagName;
-            holder.skipDepth = 1;
-            return;
-         }
-
-         // Case: registered node
-         holder.currentNode = holder.currentNode.getChild(hTagName);
-         // If this is a target node, send the OPEN_TAG callback
-         if (! holder.currentNode.isTarget) {
-            holder.xmlState = S_INTAG;
-            return;
-         } 
-
-         holder.xmlState = S_TARGET_INTAG;
-         if (!holder.currentNode.handler.call(
-            holder.currentNode.idToken, holder,
-            EV_OPEN_TAG,
-            holder.tagName, holder.tagNameEnd,
-            0, 0)) {
-            // If the handler returns false, skip to next XML
-            HD_NEXT_XML(holder);
-            return;
-         }
-
-         // Record target distance log
-         int targetStart = holder.tagName; // byte offset of '<target'
-         if (holder.logSize < holder.logDistances.length) {
-            long dist;
-            if (holder.lastTargetOffset >= 0) {
-               dist = targetStart - holder.lastTargetOffset;
-            } else if (holder.rootOffset >= 0) {
-               dist = targetStart - holder.rootOffset;
-            } else {
-               dist = 0;
-            }
-            holder.logDistances[holder.logSize] = dist;
-            holder.logHashes[holder.logSize] = hTagName;
-            holder.logSize++;
-            holder.lastTargetOffset = targetStart;
-         }
-
-         // Trigger prediction after first target if not already active
-         if (!holder.predictionActive && holder.logSize == 1) {
-            // Build partial log with what we have so far
-            long[] partialDist = new long[holder.logSize];
-            long[] partialHash = new long[holder.logSize];
-            System.arraycopy(holder.logDistances, 0, partialDist, 0, holder.logSize);
-            System.arraycopy(holder.logHashes, 0, partialHash, 0, holder.logSize);
-            xmlBluePrint.LogEntry partialLog = new xmlBluePrint.LogEntry(partialDist, partialHash, holder.logSize);
-
-            // Find best matching log from blueprint
-            xmlBluePrint.LogEntry bestMatch = xmlBluePrint.findBestMatch(partialLog);
-            if (bestMatch != null && bestMatch.size > holder.logSize) {
-               holder.predictedLog = bestMatch;
-               holder.predictedIndex = holder.logSize; // start predicting from next target
-               holder.predictionActive = true;
-               holder.predictionValid = true;
-            }
-         }
-
-         // If prediction active, verify prediction
-         if (holder.predictionActive && holder.predictionValid
-               && holder.predictedIndex < holder.predictedLog.size) {
-            verifyPrediction(holder, targetStart, hTagName);
-         }
-         return;
-      }
-   };
-
-   private static final CELL HD_BEGIN_ATTR = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.attrName = holder.pointer++;
-         holder.xmlState = S_ATTR; 
-      }
-   };   
-
-   private static final CELL HD_NOVAL_ATTR = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.xmlState = S_TARGET_INTAG; 
-         holder.attrEnd = holder.pointer;
-
-         // callback to user
-         System.out.println("INVOKING HANDLER (EV_ATTR): " + holder.currentNode.handler.getClass().getName());
-         if (!holder.currentNode.handler.call(holder.currentNode.idToken, holder, EV_ATTR, holder.attrName, holder.attrEnd, 0, 0)){
-            HD_NEXT_XML(holder);
-         }
-      }
-   };
-      
-   private static final CELL HD_TO_TARGET_INNER = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.xmlState = S_TARGET_INNER; 
-         holder.value = ++holder.pointer;
-      }
-   };   
-
-   private static final CELL HD_SLASH_INTARGET = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         if ('>' != holder.jobStart[holder.cp][++holder.pointer]) {
-            if (! errorHandler.call(errorToken, holder, EV_EXPECTED_END, 0,0,0,0)) {
-               HD_NEXT_XML(holder);
-               return;
-            }
-         } 
-         holder.pointer++;
-         if (! holder.currentNode.handler.call(holder.currentNode.idToken, holder, EV_CLOSE_TAG, 0, 0, 0, 0)) {
-            HD_NEXT_XML(holder);
-            return;
-         } 
-         holder.currentNode = holder.currentNode.parent;
-         holder.xmlState = (holder.currentNode.isTarget)?S_TARGET_INNER: S_INNER;    
-         holder.value = holder.pointer;
-         return;   
-      }
-   };      
-
-   private static final CELL HD_TO_INNER = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         if ('/' == holder.jobStart[holder.cp][holder.pointer-1]) {
-            holder.currentNode = holder.currentNode.parent;
-            holder.xmlState = (holder.currentNode.isTarget)?S_TARGET_INNER: S_INNER;    
-            holder.value = holder.pointer;
-            return;   
-         }
-         holder.xmlState = S_INNER; 
-         holder.pointer++;
-      }
-   };   
-
-   private static final CELL HD_VAL_ATTR = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.attrEnd = holder.pointer++;
-         holder.value = holder.pointer;
-         holder.xmlState = S_VAL_ATTR;
-         return;
-      }
-   };
-
-   private static final CELL HD_VAL_QUOTE = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.valEnd = holder.value = ++holder.pointer;
-         holder.xmlState = S_QUOTE_VALUE;
-         return;
-      }
-   };
-
-   private static final CELL HD_VAL_DQUOTE = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.valEnd = holder.value = ++holder.pointer;
-         holder.xmlState = S_DQUOTE_VALUE;
-         return;
-      }
-   };
-
-   private static final CELL HD_VAL_VALUE = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.valEnd = holder.value = ++holder.pointer;
-         holder.xmlState = S_VAL_VALUE;
-         return;
-      }
-   };
-
-/**
-    * Handles the end of an attribute value in XML parsing.
-    * Called when we've finished reading an attribute value (after the = sign)
-    * and encounter a delimiter (space, >, /, ", or ').
-    * 
-    * Processing steps:
-    * 1. Mark the end of the attribute value
-    * 2. Determine if this is the last attribute in the tag or a self-closing tag
-    * 3. If there's an attribute, callback to the user handler
-    * 4. Handle self-closing tags (<tag/>) by calling close tag handler
-    * 5. For last attributes, transition to processing tag inner content
-    * 6. For more attributes, prepare to read the next attribute name
-    */
-   private static final CELL HD_END_VALUE = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.valEnd = holder.pointer++;
-         boolean isLastAttr = ('>' == holder.jobStart[holder.cp][holder.pointer-1]);
-         boolean isSelfClose = (isLastAttr && '/' == holder.jobStart[holder.cp][holder.pointer-2]);
-
-         // case self close tag : remove '/' from last char
-         if (isSelfClose) holder.valEnd--; 
-
-         if (holder.attrEnd > holder.attrName) {
-            // callback to user
-         System.out.println("INVOKING HANDLER (EV_ATTR): " + holder.currentNode.handler.getClass().getName());
-            if (! holder.currentNode.handler.call(holder.currentNode.idToken, holder, EV_ATTR, holder.attrName, holder.attrEnd, holder.value, holder.valEnd)){
-               HD_NEXT_XML(holder);
-               return;
-            }
-         }
-
-         // case this is self ending tag
-         if (isSelfClose) { 
-            if (! holder.currentNode.handler.call(holder.currentNode.idToken, holder, EV_CLOSE_TAG, 0, 0, 0, 0)) {
-               HD_NEXT_XML(holder);
-               return;
-            } else {
-               holder.currentNode = holder.currentNode.parent;
-               holder.xmlState = S_TARGET_INNER;    
-               holder.value = holder.pointer;
-               return;   
-            } 
-         }
-
-         // case this is last attribute
-         if (isLastAttr) { 
-            holder.xmlState = S_TARGET_INNER;
-            holder.value = holder.pointer;
-            return;
-         }
-
-         // case continue to read next attr
-         holder.xmlState = S_ATTR;
-         holder.attrName = holder.pointer;
-         return ;
-      }
-   };
-
-   private static final CELL HD_TARGET_LT = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.valEnd = holder.pointer++;
-         System.out.println("INVOKING HANDLER (EV_INNER_TEXT): " + holder.currentNode.handler.getClass().getName());
-         if (! holder.currentNode.handler.call(holder.currentNode.idToken, holder, EV_INNER_TEXT, 0, 0, holder.value, holder.valEnd)) {
-            HD_NEXT_XML(holder);
-            return;
-         }             
-         holder.xmlState = S_LT;
-         return;
-      }
-   };
-
-   private static final CELL HD_INNER = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         if (holder.currentNode.isTarget) {
-            holder.value = holder.pointer++;
-            if ('<' == holder.jobStart[holder.cp][holder.pointer-2]) holder.value--;
-            holder.xmlState = S_TARGET_INNER;
-         } else {
-            holder.pointer++;         
-            holder.xmlState = S_INNER;   
-         }
-         return;
-      }
-   };
-
-   private static final CELL HD_BANG = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_BANG;
-         return ;
-      }
-   };      
-
-   private static final CELL HD_DASH = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_DASH;
-         return ;
-      }
-   };  
-
-   private static final CELL HD_2DASH = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_2DASH;
-         return ;
-      }
-   };     
-
-   private static final CELL HD_MINUS_DASH = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_MINUS_DASH;
-         return ;
-      }
-   };        
-
-   private static final CELL HD_MINUS_2DASH = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_MINUS_2DASH;
-         return ;
-      }
-   };       
-
-   private static final CELL HD_PI = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.pointer++;
-         holder.xmlState = S_PI;
-         return ;
-      }
-   };       
-
-   private static final CELL HD_CHAR = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.tagName = holder.pointer++;
-         holder.xmlState = S_TAG_BEGIN;
-         return ;
-      }
-   };     
-
-   private static final CELL HD_TAG_CLOSE = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         // Move pointer past the '>' character
-         holder.pointer++;
-         
-         // Check if this is a self-closing tag (e.g., <tag/>)
-         // Self-closing tags have '/' as the second-to-last character before '>'
-         boolean isSelfClosed = holder.jobStart[holder.cp][holder.pointer - 2] == '/';
-         
-         if (isSelfClosed) {
-            // For self-closing tags, we move back to the parent node
-            // and set the appropriate state based on whether parent is a target
-            holder.currentNode = holder.currentNode.parent;
-            
-            // If parent is a target node, we continue processing inner content
-            // Otherwise, we process regular content
-            if (holder.currentNode.isTarget) {
-               holder.xmlState = S_TARGET_INNER;
-               holder.value = holder.pointer;
-            } else {
-               holder.xmlState = S_INNER;
-            }
-            return;
-         }
-         
-         // For regular closing tags (e.g., </tag>), we continue with inner content
-         holder.xmlState = S_INNER;
-      }
-   };
-   
-   private static final CELL HD_LT = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.valEnd = holder.pointer++;
-         holder.xmlState = S_LT;
-         return;
-      }
-   };
-
-   private static final CELL HD_SLASH = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         holder.tagName = ++holder.pointer;
-         holder.xmlState = S_SLASH;
-         holder.hTagName = 0;
-         return;
-      }
-   };
-
-   private static final CELL HD_ENDTAG_NAME = new CELL() {
-      @Override
-      public void call(xmlBluePrintHolder holder) {
-         // Step 1: Mark the end of the tag name (current pointer points to the first char after the tag name)
-         holder.tagNameEnd = holder.pointer++;
-
-         // Compute hash for the tag name if not already computed
-         if (holder.hTagName == 0) {
-            holder.hTagName = hash(holder.jobStart[holder.cp], holder.tagName, holder.tagNameEnd);
-         }
-
-         // Step 2: Check if we have the closing '>' immediately after the tag name
-         if (holder.jobStart[holder.cp][holder.pointer - 1] != '>') {
-            // Missing '>', go to state to handle until we find '>'
-            holder.xmlState = S_GT_ONLY;
-            return;
-         }
-
-
-        // Step 3: If we are currently skipping an unregistered branch (skipDepth > 0)
-        if (holder.skipDepth > 0) {
-            // If this tag matches the skipName, decrement depth
-            if (holder.hTagName == holder.skipName) {
-                holder.skipDepth--;
-            }
-
-            // After processing, check if we have exited the skipped branch
-            if (holder.skipDepth == 0) {
-                // Clear skipName when exiting
-                holder.skipName = 0;
-                // We are now back to the registered branch
-                // Set state based on whether current node is a target
-                if (holder.currentNode.isTarget) {
-                    holder.xmlState = S_TARGET_INNER;
-                    holder.value = holder.pointer;
-                } else {
-                    holder.xmlState = S_INNER;
-                }
-            } else {
-                // Still inside a skipped branch
-                holder.xmlState = S_UNREGIST_BRANCH;
-            }
-            return;
-        }
-
-         // Step 4: We are in a registered branch (skipDept == 0)
-         // Check if the end tag matches the start tag (by comparing hashes)
-         if (holder.hTagName != holder.currentNode.tagHash) {
-            // Mismatch: end tag does not match the start tag
-            if (!errorHandler.call(errorToken, holder, EV_END_NE_BEGIN, 0, 0, 0, 0)) {
-               // If the error handler did not consume the error, move to next XML
-               HD_NEXT_XML(holder);
-            }
-            return;
-         }
-
-         // Step 5: Tags match, proceed to handle the closing tag
-         holder.currentNode.HD_CLOSINGTAG.call(holder);
-      }
-   };
+   public xmlBluePrint() {
+       // Initialize instance-specific state
+       this.root = new xmlBluePrintNode();
+       this.threadCount = 0;
+       this.holders = null;
+       this.workerThreads = null;
+       this.running = false;
+       this.paused = false;
+       this.shuttingdown = false;
+       this.forceShutdown = false;
+       this.logHead = 0;
+       this.logCount = 0;
+       this.logStore = new LogEntry[MAX_LOGS];
+       this.TOC = new CELL[xmlState_MAX][256];
+       // set all to HD_SAMESTATE
+       for (int i = TOC.length - 1; i >= 0; i--) {
+          for (int j = 255; j >= 0; j--) {
+             TOC[i][j] = HD_SAMESTATE;
+          }
+       }
+
+       // UTF-8 2-byte sequence leading bytes: 0xC0-0xDF (110xxxxx)
+       // Skip leading + continuation byte together
+       for (int i = TOC.length - 1; i >= 0; i--) {
+          for (int j = 0xC0; j <= 0xDF; j++) {
+             TOC[i][j] = SKIP2_HANDLER;
+          }
+       }
+
+       // UTF-8 3-byte sequence leading bytes: 0xE0-0xEF (1110xxxx)
+       // Skip leading + 2 continuation bytes
+       for (int i = TOC.length - 1; i >= 0; i--) {
+          for (int j = 0xE0; j <= 0xEF; j++) {
+             TOC[i][j] = SKIP3_HANDLER;
+          }
+       }
+
+       // UTF-8 4-byte sequence leading bytes: 0xF0-0xF7 (11110xxx)
+       // Skip leading + 3 continuation bytes
+       for (int i = TOC.length - 1; i >= 0; i--) {
+          for (int j = 0xF0; j <= 0xF7; j++) {
+             TOC[i][j] = SKIP4_HANDLER;
+          }
+       }
 
    /*---- TOC Filling ---- */
-
-   public xmlBluePrint() {
 
       // set all to HD_SAMESTATE
       for (int i = TOC.length - 1; i >= 0; i--) {
@@ -2185,7 +931,1186 @@ public boolean run(){
        */
       TOC[S_UNREGIST_BRANCH]['<'] = HD_LT;     
 
-   }
+   };
+
+   static final boolean isSpace(byte x){
+      return (' '==x || '\r'==x || '\n'==x || '\t'==x);
+   };
+
+   // Instance-specific state (no longer static)
+   xmlBluePrintNode root = new xmlBluePrintNode(); // root of structure Tree
+   xmlBluePrintCall rootHandler = null;
+   Object rootToken = null;
+
+   // Error handler and token (set via errorRegist)
+   xmlBluePrintCall errorHandler = null;
+   Object errorToken = null;
+
+   // set number of worker thread 
+   int threadCount = 0;
+   Thread[] workerThreads = null;
+   xmlBluePrintHolder[] holders = null;
+   volatile boolean running = false; // Used to start only once
+   volatile boolean paused = false; // Used to freeze job
+   volatile boolean shuttingdown = false; // Used to notify shutting down
+   volatile boolean forceShutdown = false; // Used to force shutdown
+   volatile int nextHolder = 0; // round-robin index for direct pushJob
+    
+   public static class LogEntry {
+      public final long[] distances;  // bytes from root/target to next target
+      public final long[] hashes;     // FNV-1a hash of target tag names
+      public final int size;          // valid entries
+
+      public LogEntry(long[] distances, long[] hashes, int size) {
+         this.distances = distances;
+         this.hashes = hashes;
+         this.size = size;
+      }
+
+      public LogEntry(long[] distances, long[] hashes) {
+         this(distances, hashes, Math.min(distances.length, hashes.length));
+      }
+   };
+
+   // Central log store (ring buffer) - per instance
+   final int MAX_LOGS = 10000;
+   LogEntry[] logStore = new LogEntry[MAX_LOGS];
+   int logHead = 0;
+   int logCount = 0;
+
+   // ============================================================
+   // Prediction & Verification
+   // ============================================================
+
+   /**
+    * Called by holder when job completes to store its log.
+    */
+   public void collectLog(LogEntry log) {
+      if (log == null || log.size == 0) return;
+      logStore[logHead] = log;
+      logHead = (logHead + 1) % MAX_LOGS;
+      if (logCount < MAX_LOGS) logCount++;
+   };
+
+   /**
+    * Find best matching log for an emerging fingerprint.
+    * Returns null if no logs stored yet.
+    */
+   public LogEntry findBestMatch(LogEntry emerging) {
+      if (logCount == 0 || emerging == null || emerging.size == 0) return null;
+
+      LogEntry best = null;
+      double bestScore = -1.0;
+
+      for (int i = 0; i < logCount; i++) {
+         LogEntry stored = logStore[i];
+         if (stored == null) continue;
+         double score = score(stored, emerging);
+         if (score > bestScore) {
+            bestScore = score;
+            best = stored;
+         }
+      }
+      return best;
+   };
+
+   /**
+    * Score similarity between stored log and emerging log.
+    * Combines tag sequence match (70%) and distance ratio match (30%).
+    */
+   private static double score(LogEntry stored, LogEntry emerging) {
+      int maxLen = Math.max(stored.size, emerging.size);
+      if (maxLen == 0) return 0.0;
+
+      // Tag sequence: longest common prefix
+      int commonPrefix = 0;
+      int minLen = Math.min(stored.size, emerging.size);
+      for (int i = 0; i < minLen; i++) {
+         if (stored.hashes[i] == emerging.hashes[i]) commonPrefix++;
+         else break;
+      }
+      double tagScore = (double) commonPrefix / maxLen;
+
+      // Distance ratios for common prefix region
+      double distScore = 1.0;
+      if (commonPrefix > 1) {
+         double ratioSum = 0.0;
+         for (int i = 1; i < commonPrefix; i++) {
+            double storedRatio = (double) stored.distances[i] / stored.distances[i - 1];
+            double emergingRatio = (double) emerging.distances[i] / emerging.distances[i - 1];
+            double maxRatio = Math.max(storedRatio, emergingRatio);
+            if (maxRatio > 0) {
+               ratioSum += 1.0 - Math.abs(storedRatio - emergingRatio) / maxRatio;
+            }
+         }
+         distScore = ratioSum / (commonPrefix - 1);
+      }
+
+      return 0.7 * tagScore + 0.3 * distScore;
+   };
+
+   /**
+    * Get all collected logs (for inspection/debugging).
+    * Returns a snapshot of current log store.
+    */
+   public LogEntry[] getCollectedLogs() {
+      LogEntry[] result = new LogEntry[logCount];
+      for (int i = 0; i < logCount; i++) {
+         int idx = (logHead - logCount + i + MAX_LOGS) % MAX_LOGS;
+         result[i] = logStore[idx];
+      }
+      return result;
+   };
+
+   /**
+    * Verify that the predicted target matches the actual parsed target.
+    * If mismatch, invalidate prediction and fall back to normal FSM.
+    */
+   private static void verifyPrediction(xmlBluePrintHolder holder, int actualOffset, long actualHash) {
+      if (holder.predictedLog == null || holder.predictedIndex >= holder.predictedLog.size) {
+         return;
+      }
+
+      long predictedDist = holder.predictedLog.distances[holder.predictedIndex];
+      long predictedHash = holder.predictedLog.hashes[holder.predictedIndex];
+      int predictedOffset = (holder.predictedIndex == 0 && holder.rootOffset >= 0)
+         ? holder.rootOffset + (int)predictedDist
+         : holder.lastTargetOffset + (int)predictedDist;
+
+      if (actualHash != predictedHash || actualOffset != predictedOffset) {
+         holder.predictionValid = false;
+         holder.predictionActive = false;
+         // Fallback: continue normal FSM
+      } else {
+         holder.predictedIndex++;
+      }
+   };
+
+   /**
+    * Verify that the tag at current pointer matches the expected hash.
+    * Reads tag name starting at pointer and hashes it for comparison.
+    */
+   private static boolean verifyTagAtPointer(xmlBluePrintHolder holder, long expectedHash) {
+      byte[] buf = holder.jobStart[holder.cp];
+      int originalPtr = holder.pointer;
+      int len = holder.jobLength[holder.cp];
+
+      final int TOLERANCE = 5;
+
+      // 1. ตั้งกรอบค้นหา (Clamp ขอบเขตความปลอดภัย)
+      int minDelta = Math.max(-TOLERANCE, -originalPtr);
+      int maxDelta = Math.min(TOLERANCE, len - 1 - originalPtr);
+
+      // วนลูปสแกนในกรอบ
+      for (int delta = minDelta; delta <= maxDelta; delta++) {
+         int ptr = originalPtr + delta;
+
+         // 2. Scan for '<' : ถ้าไม่ใช่ ให้ข้ามไป (ถ้าหาไม่เจอเลยในกรอบ ลูปก็จะจบและคืนค่า false ด้านล่าง)
+         if (buf[ptr] != '<') {
+            continue;
+         }
+
+         // 3. Check hashTagName (เมื่อเจอ '<' แล้ว ค่อยอ่านชื่อและแฮช)
+         int tempPtr = ptr + 1; // ข้าม '<'
+         int nameStart = tempPtr;
+         
+         while (tempPtr < len) {
+            byte b = buf[tempPtr];
+            if (b == '>' || b == '/' || b == ' ' || b == '\t' || b == '\n' || b == '\r') break;
+            tempPtr++;
+         }
+         int nameEnd = tempPtr;
+
+         if (nameEnd <= nameStart) continue;
+
+         long actualHash = hash(buf, nameStart, nameEnd);
+         
+         if (actualHash == expectedHash) {
+            holder.pointer = ptr; // อัปเดตพิกัดจริงที่เจอทันที
+            return true;
+         }
+      }
+
+      // ถ้าวนจนหมดกรอบแล้วไม่เจอ '<' ที่ Hash ตรงกันเลย -> คืนค่า false (Fallback ไป FSM)
+      return false;
+   };
+
+   // ============================================================
+   // State <Constants>
+   // ============================================================
+   
+   // OUTSIDE ROOT (0-7)
+   public static final int S_HEADER             = 0;
+   public static final int S_HEAD_LT            = 1;
+   public static final int S_HEADER_BANG        = 2;
+   public static final int S_HEADER_PI          = 3;
+   public static final int S_HEADER_DASH        = 5;
+   public static final int S_HEADER_2DASH       = 6;
+   public static final int S_HEADER_MINUS_DASH  = 7;
+   public static final int S_HEADER_MINUS_2DASH = 8;
+   public static final int S_HEADER_X        = 9;
+   public static final int S_HEADER_XM       = 10;
+   public static final int S_HEADER_XML      = 11;
+   public static final int S_HEADER_ATTR     = 12;
+   public static final int S_HEADER_E        = 13;
+   public static final int S_HEADER_C        = 14;  
+   public static final int S_EN              = 15;  
+   public static final int S_ENC             = 16;  
+   public static final int S_ENCO            = 17;  
+   public static final int S_ENCOD           = 18; 
+   public static final int S_ENCODI          = 19; 
+   public static final int S_ENCODIN         = 20; 
+   public static final int S_ENCODING        = 21; 
+   public static final int S_ENC_VALUE       = 22; 
+   public static final int S_ENC_QUOTE       = 23; 
+   public static final int S_ENC_DQUOTE      = 24; 
+   public static final int S_ENC_CHARSET     = 25;
+   public static final int S_CHR_C           = 26; 
+   public static final int S_CHR_CH          = 27; 
+   public static final int S_CHR_CHA         = 28; 
+   public static final int S_CHR_CHAR        = 29;  
+   public static final int S_CHR_CHARSE      = 30; 
+   public static final int S_CHR_CHARSET     = 31; 
+   public static final int S_ROOT_POSIBLE    = 32; 
+   public static final int S_ROOT_BEGIN      = 33; 
+   public static final int S_TAG_BEGIN       = 34;    
+   public static final int S_TARGET_INTAG    = 35;    
+   public static final int S_INTAG           = 36;       
+   public static final int S_NEXT_XML        = 37; 
+   public static final int S_TARGET_INNER    = 38; 
+   public static final int S_ATTR            = 39; 
+   public static final int S_VAL_ATTR        = 40;    
+   public static final int S_QUOTE_VALUE     = 41;   
+   public static final int S_DQUOTE_VALUE    = 42;   
+   public static final int S_VAL_VALUE       = 43;  
+   public static final int S_LT              = 44;  
+   public static final int S_BANG            = 45;  
+   public static final int S_DASH            = 46;  
+   public static final int S_2DASH           = 47;  
+   public static final int S_MINUS_DASH      = 48;  
+   public static final int S_MINUS_2DASH     = 49;  
+   public static final int S_PI              = 50;  
+
+
+   public static final int S_INNER           = 51;  
+   public static final int S_SLASH           = 52;  
+   public static final int S_GT_ONLY         = 53;  
+   public static final int S_UNREGIST_BRANCH = 54;  
+
+   public static final int xmlState_MAX      = 55;
+
+   // ============================================================
+   // Event <Constants>
+   // ============================================================
+
+   // Event types (สำหรับ handler interface)
+   public static final int EV_OPEN_TAG    = 1;
+   public static final int EV_CLOSE_TAG   = 2;
+   public static final int EV_ATTR        = 3;
+   public static final int EV_INNER_TEXT  = 4;
+  
+   public static final int EV_UNKNOWN_ERROR = 0;
+   public static final int EV_EOF_IN_ROOT = 1001;
+   public static final int EV_EXPECTED_END = 1002;
+   public static final int EV_END_NE_BEGIN = 1003;
+
+   // ============================================================
+   // TOC Handlling
+   // ============================================================
+
+   private static void HD_NEXT_XML(xmlBluePrintHolder holder) {
+      while (!holder.bluePrint.shuttingdown && !holder.nextJob()) LockSupport.parkNanos(5_000_000L);      
+   };
+
+   private static final CELL HD_CLOSINGROOT = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.rootClosed = true;  // Mark root as properly closed
+         holder.bluePrint.root.handler.call(holder.bluePrint.rootToken,holder,EV_CLOSE_TAG,0,0,0,0);
+         HD_NEXT_XML(holder);
+      }
+   };   
+
+   /**
+    * Handles the closing of an XML tag.
+    * Called when parsing encounters a closing tag (e.g., </tag>).
+    * 
+    * Processing steps:
+    * 1. If the current node is a target node (registered path), call its handler for the close tag event
+    * 2. If the handler returns false, skip to the next XML document
+    * 3. Move back to the parent node
+    * 4. Set the appropriate state based on whether the parent is a target node
+    * 5. Set the value pointer to the current position
+    */
+   private static final CELL HD_CLOSINGTAG = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         if (holder.currentNode.isTarget) {
+            if (! holder.currentNode.handler.call(holder.currentNode.idToken,holder,EV_CLOSE_TAG,holder.tagName,holder.tagNameEnd,0,0)) {
+               HD_NEXT_XML(holder);
+               return ;
+            }
+         }
+         holder.currentNode = holder.currentNode.parent;
+         holder.xmlState = (holder.currentNode.isTarget)? S_TARGET_INNER: S_INNER;
+         holder.value = holder.pointer;
+      }
+   };      
+
+   // Singleton ignore handler - default for all TOC entries
+   private static final CELL HD_SAMESTATE = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+          holder.pointer++;
+          return ;
+      }
+   };
+
+   private static final CELL SKIP2_HANDLER = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+          holder.pointer += 2;
+          return ;
+      }
+   };
+
+   private static final CELL SKIP3_HANDLER = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+          holder.pointer += 3;
+          return ;
+      }
+   };
+
+   private static final CELL SKIP4_HANDLER = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+          holder.pointer += 4;
+          return ;
+      }
+   };
+
+   private static final CELL HD_HEADER = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_HEADER;
+         return ;
+      }
+   };     
+
+   private static final CELL HD_HEAD_LT = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_HEAD_LT;
+         return ;
+      }
+   };
+
+   private static final CELL HD_HEADER_BANG = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_HEADER_BANG;
+         return ;
+      }
+   };      
+
+   private static final CELL HD_HEADER_DASH = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_HEADER_DASH;
+         return ;
+      }
+   };  
+
+   private static final CELL HD_HEADER_2DASH = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_HEADER_2DASH;
+         return ;
+      }
+   };     
+
+   private static final CELL HD_HEADER_MINUS_DASH = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_HEADER_MINUS_DASH;
+         return ;
+      }
+   };        
+
+   private static final CELL HD_HEADER_MINUS_2DASH = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_HEADER_MINUS_2DASH;
+         return ;
+      }
+   };       
+   
+   private static final CELL HD_HEADER_PI = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_HEADER_PI;
+         return ;
+      }
+   };     
+
+   private static final CELL HD_HEADER_X = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_HEADER_X;
+         return ;
+      }
+   };    
+
+   private static final CELL HD_HEADER_XM = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_HEADER_XM;
+         return ;
+      }
+   };
+
+   private static final CELL HD_HEADER_XML = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_HEADER_XML;
+         return ;
+      }
+   };   
+
+   private static final CELL HD_HEADER_ATTR = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_HEADER_XML;
+         return ;
+      }
+   };      
+
+   private static final CELL HD_HEADER_E = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_HEADER_E;
+         return ;
+      }
+   };      
+
+   private static final CELL HD_EN = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_EN;
+         return ;
+      }
+   };   
+
+   private static final CELL HD_ENC = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_ENC;
+         return ;
+      }
+   };  
+
+   private static final CELL HD_ENCO = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_ENCO;
+         return ;
+      }
+   };  
+
+   private static final CELL HD_ENCOD = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_ENCOD;
+         return ;
+      }
+   };  
+
+   private static final CELL HD_ENCODI = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_ENCODI;
+         return ;
+      }
+   };  
+
+   private static final CELL HD_ENCODIN = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_ENCODIN;
+         return ;
+      }
+   };  
+
+   private static final CELL HD_ENCODING = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_ENCODING;
+         return ;
+      }
+   };  
+
+   private static final CELL HD_ENC_VALUE = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_ENC_VALUE;
+         return ;
+      }
+   };  
+
+   private static final CELL HD_ENC_QUOTE = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_ENC_QUOTE;
+         holder.value = holder.pointer;
+         return ;
+      }
+   };  
+
+   private static final CELL HD_ENC_Q_VALUE = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.valEnd = ++holder.pointer; 
+
+         // Extract charset value from jobStart[cp] between value and valEnd-1
+         byte[] buf = holder.jobStart[holder.cp];
+         int valueStart = holder.value;
+         int valueEnd = holder.valEnd - 1; // exclusive end
+
+         // let trim befor anything
+         while (valueStart<=valueEnd && isSpace(buf[valueStart]))valueStart++;
+         while (valueStart<=valueEnd && isSpace(buf[valueEnd]))valueEnd--;
+
+         if (valueEnd > valueStart) {
+            // Extract the raw value bytes
+            int rawLen = valueEnd - valueStart;
+            System.arraycopy(buf, valueStart, holder.encodeBuff, 0, rawLen);
+            
+            // Convert to string for processing
+            String finalValue = new String(holder.encodeBuff,0,rawLen);
+            
+            // Try to create Charset object
+            try {
+               holder.charset = java.nio.charset.Charset.forName(finalValue);
+               holder.fHeaderCharset = true;
+            } catch (Exception e) {
+               // Invalid charset, keep default (null)
+            }
+         }         
+         holder.xmlState = S_HEADER;
+         return ;
+      }
+   };  
+
+   private static final CELL HD_ENC_DQUOTE = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_ENC_DQUOTE;
+         holder.value = holder.pointer;
+         return ;
+      }
+   };  
+
+   private static final CELL HD_ENC_CHARSET = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_ENC_CHARSET;
+         holder.value = holder.pointer-1;
+         return ;
+      }
+   };  
+
+   // เริ่มต้นเส้นทาง charset จาก S_HEADER_ATTR
+   private static final CELL HD_CHR_C = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_CHR_C;
+         return ;
+      }
+   };
+
+   private static final CELL HD_CHR_CH = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_CHR_CH;
+         return ;
+      }
+   };
+
+   private static final CELL HD_CHR_CHA = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_CHR_CHA;
+         return ;
+      }
+   };
+
+   private static final CELL HD_CHR_CHAR = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_CHR_CHAR;
+         return ;
+      }
+   };
+
+   private static final CELL HD_CHR_CHARSE = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_CHR_CHARSE;
+         return ;
+      }
+   };
+
+   private static final CELL HD_CHR_CHARSET = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_CHR_CHARSET;
+         return ;
+      }
+   };   
+
+   private static final CELL HD_HEAD_CHAR = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.tagName = holder.pointer++;
+         holder.xmlState = S_ROOT_POSIBLE;
+         return ;
+      }
+   };   
+
+   /**
+    * Checks if the current tag is the root tag by examining if it's a closing tag.
+    * Called when parsing encounters a tag name after '<' (e.g., in <tag> or </tag>).
+    * 
+    * Processing steps:
+    * 1. Check if the previous character was '/' (indicating a closing tag)
+    * 2. If it's a closing tag ('/'), move to S_HEADER state to process the closing
+    * 3. If it's an opening tag, move to S_ROOT_BEGIN state to continue processing
+    * 4. In both cases, increment the pointer appropriately
+    */
+   private static final CELL HD_ROOT_POSIBLE = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         if ('/' == holder.jobStart[holder.cp][holder.pointer-1]) {
+            holder.pointer++;
+            holder.xmlState = S_HEADER;
+         } else {
+            holder.pointer = holder.tagName+1;
+            holder.xmlState = S_ROOT_BEGIN;
+         }
+         return ;
+      }
+   };   
+
+   private static final CELL HD_ROOT_TAGNAME = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         // Capture hRootName use for close tag matching
+         holder.tagNameEnd = holder.pointer;
+         holder.hRootName = hash(holder.jobStart[holder.cp],holder.tagName,holder.tagNameEnd);
+         holder.currentNode = holder.bluePrint.root;
+
+         // Initialize target distance log
+         holder.rootOffset = holder.tagName; // byte offset of '<root>'
+         holder.lastTargetOffset = -1;
+         holder.logSize = 0;
+         holder.predictedLog = null;
+         holder.predictedIndex = 0;
+         holder.predictionActive = false;
+         holder.predictionValid = true;
+         holder.rootClosed = false; // Ensure root closed flag is cleared on opening root
+
+         if (holder.bluePrint.rootHandler != null ) {
+            if (! holder.bluePrint.rootHandler.call(holder.bluePrint.rootToken,holder,EV_OPEN_TAG,holder.tagName,holder.tagNameEnd,0,0)) {
+               HD_NEXT_XML(holder);
+               return ;
+            }
+            holder.xmlState = S_TARGET_INTAG;
+         } else {
+            holder.xmlState = S_INTAG;
+         }
+      }
+   };   
+
+   private static final CELL HD_TAGNAME = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.tagNameEnd = holder.pointer;
+         long hTagName = hash(holder.jobStart[holder.cp], holder.tagName, holder.tagNameEnd);
+
+         // If we are currently skipping an unregistered  branch (skipDepth > 0)
+         if (holder.skipDepth > 0) {
+            holder.xmlState = S_UNREGIST_BRANCH;
+            if (hTagName == holder.skipName) holder.skipDepth++;
+            return;
+         }
+
+         // Record skipName and enter skip mode
+         if (!holder.currentNode.hasChild(hTagName)) {
+            holder.xmlState = S_UNREGIST_BRANCH;         
+            holder.skipName = hTagName;
+            holder.skipDepth = 1;
+            return;
+         }
+
+         // Case: registered node
+         holder.currentNode = holder.currentNode.getChild(hTagName);
+         // If this is a target node, send the OPEN_TAG callback
+         if (! holder.currentNode.isTarget) {
+            holder.xmlState = S_INTAG;
+            return;
+         } 
+
+         holder.xmlState = S_TARGET_INTAG;
+         if (!holder.currentNode.handler.call(
+            holder.currentNode.idToken, holder,
+            EV_OPEN_TAG,
+            holder.tagName, holder.tagNameEnd,
+            0, 0)) {
+            // If the handler returns false, skip to next XML
+            HD_NEXT_XML(holder);
+            return;
+         }
+
+         // Record target distance log
+         int targetStart = holder.tagName; // byte offset of '<target'
+         if (holder.logSize < holder.logDistances.length) {
+            long dist;
+            if (holder.lastTargetOffset >= 0) {
+               dist = targetStart - holder.lastTargetOffset;
+            } else if (holder.rootOffset >= 0) {
+               dist = targetStart - holder.rootOffset;
+            } else {
+               dist = 0;
+            }
+            holder.logDistances[holder.logSize] = dist;
+            holder.logHashes[holder.logSize] = hTagName;
+            holder.logSize++;
+            holder.lastTargetOffset = targetStart;
+         }
+
+         // Trigger prediction after first target if not already active
+         if (!holder.predictionActive && holder.logSize == 1) {
+            // Build partial log with what we have so far
+            long[] partialDist = new long[holder.logSize];
+            long[] partialHash = new long[holder.logSize];
+            System.arraycopy(holder.logDistances, 0, partialDist, 0, holder.logSize);
+            System.arraycopy(holder.logHashes, 0, partialHash, 0, holder.logSize);
+            xmlBluePrint.LogEntry partialLog = new xmlBluePrint.LogEntry(partialDist, partialHash, holder.logSize);
+
+            // Find best matching log from blueprint
+            xmlBluePrint.LogEntry bestMatch = holder.bluePrint.findBestMatch(partialLog);
+            if (bestMatch != null && bestMatch.size > holder.logSize) {
+               holder.predictedLog = bestMatch;
+               holder.predictedIndex = holder.logSize; // start predicting from next target
+               holder.predictionActive = true;
+               holder.predictionValid = true;
+            }
+         }
+
+         // If prediction active, verify prediction
+         if (holder.predictionActive && holder.predictionValid
+               && holder.predictedIndex < holder.predictedLog.size) {
+            verifyPrediction(holder, targetStart, hTagName);
+         }
+         return;
+      }
+   };
+
+   private static final CELL HD_BEGIN_ATTR = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.attrName = holder.pointer++;
+         holder.xmlState = S_ATTR; 
+      }
+   };   
+
+   private static final CELL HD_NOVAL_ATTR = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.xmlState = S_TARGET_INTAG; 
+         holder.attrEnd = holder.pointer;
+
+         // callback to user
+         System.out.println("INVOKING HANDLER (EV_ATTR): " + holder.currentNode.handler.getClass().getName());
+         if (!holder.currentNode.handler.call(holder.currentNode.idToken, holder, EV_ATTR, holder.attrName, holder.attrEnd, 0, 0)){
+            HD_NEXT_XML(holder);
+         }
+      }
+   };
+      
+   private static final CELL HD_TO_TARGET_INNER = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.xmlState = S_TARGET_INNER; 
+         holder.value = ++holder.pointer;
+      }
+   };   
+
+   private static final CELL HD_SLASH_INTARGET = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         if ('>' != holder.jobStart[holder.cp][++holder.pointer]) {
+            if (! holder.bluePrint.errorHandler.call(holder.bluePrint.errorToken, holder, EV_EXPECTED_END, 0,0,0,0)) {
+               HD_NEXT_XML(holder);
+               return;
+            }
+         } 
+         holder.pointer++;
+         if (! holder.currentNode.handler.call(holder.currentNode.idToken, holder, EV_CLOSE_TAG, 0, 0, 0, 0)) {
+            HD_NEXT_XML(holder);
+            return;
+         } 
+         holder.currentNode = holder.currentNode.parent;
+         holder.xmlState = (holder.currentNode.isTarget)?S_TARGET_INNER: S_INNER;    
+         holder.value = holder.pointer;
+         return;   
+      }
+   };      
+
+   private static final CELL HD_TO_INNER = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         if ('/' == holder.jobStart[holder.cp][holder.pointer-1]) {
+            holder.currentNode = holder.currentNode.parent;
+            holder.xmlState = (holder.currentNode.isTarget)?S_TARGET_INNER: S_INNER;    
+            holder.value = holder.pointer;
+            return;   
+         }
+         holder.xmlState = S_INNER; 
+         holder.pointer++;
+      }
+   };   
+
+   private static final CELL HD_VAL_ATTR = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.attrEnd = holder.pointer++;
+         holder.value = holder.pointer;
+         holder.xmlState = S_VAL_ATTR;
+         return;
+      }
+   };
+
+   private static final CELL HD_VAL_QUOTE = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.valEnd = holder.value = ++holder.pointer;
+         holder.xmlState = S_QUOTE_VALUE;
+         return;
+      }
+   };
+
+   private static final CELL HD_VAL_DQUOTE = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.valEnd = holder.value = ++holder.pointer;
+         holder.xmlState = S_DQUOTE_VALUE;
+         return;
+      }
+   };
+
+   private static final CELL HD_VAL_VALUE = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.valEnd = holder.value = ++holder.pointer;
+         holder.xmlState = S_VAL_VALUE;
+         return;
+      }
+   };
+
+/**
+    * Handles the end of an attribute value in XML parsing.
+    * Called when we've finished reading an attribute value (after the = sign)
+    * and encounter a delimiter (space, >, /, ", or ').
+    * 
+    * Processing steps:
+    * 1. Mark the end of the attribute value
+    * 2. Determine if this is the last attribute in the tag or a self-closing tag
+    * 3. If there's an attribute, callback to the user handler
+    * 4. Handle self-closing tags (<tag/>) by calling close tag handler
+    * 5. For last attributes, transition to processing tag inner content
+    * 6. For more attributes, prepare to read the next attribute name
+    */
+   private static final CELL HD_END_VALUE = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.valEnd = holder.pointer++;
+         boolean isLastAttr = ('>' == holder.jobStart[holder.cp][holder.pointer-1]);
+         boolean isSelfClose = (isLastAttr && '/' == holder.jobStart[holder.cp][holder.pointer-2]);
+
+         // case self close tag : remove '/' from last char
+         if (isSelfClose) holder.valEnd--; 
+
+         if (holder.attrEnd > holder.attrName) {
+            // callback to user
+         System.out.println("INVOKING HANDLER (EV_ATTR): " + holder.currentNode.handler.getClass().getName());
+            if (! holder.currentNode.handler.call(holder.currentNode.idToken, holder, EV_ATTR, holder.attrName, holder.attrEnd, holder.value, holder.valEnd)){
+               HD_NEXT_XML(holder);
+               return;
+            }
+         }
+
+         // case this is self ending tag
+         if (isSelfClose) { 
+            if (! holder.currentNode.handler.call(holder.currentNode.idToken, holder, EV_CLOSE_TAG, 0, 0, 0, 0)) {
+               HD_NEXT_XML(holder);
+               return;
+            } else {
+               holder.currentNode = holder.currentNode.parent;
+               holder.xmlState = S_TARGET_INNER;    
+               holder.value = holder.pointer;
+               return;   
+            } 
+         }
+
+         // case this is last attribute
+         if (isLastAttr) { 
+            holder.xmlState = S_TARGET_INNER;
+            holder.value = holder.pointer;
+            return;
+         }
+
+         // case continue to read next attr
+         holder.xmlState = S_ATTR;
+         holder.attrName = holder.pointer;
+         return ;
+      }
+   };
+
+   private static final CELL HD_TARGET_LT = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.valEnd = holder.pointer++;
+         System.out.println("INVOKING HANDLER (EV_INNER_TEXT): " + holder.currentNode.handler.getClass().getName());
+         if (! holder.currentNode.handler.call(holder.currentNode.idToken, holder, EV_INNER_TEXT, 0, 0, holder.value, holder.valEnd)) {
+            HD_NEXT_XML(holder);
+            return;
+         }             
+         holder.xmlState = S_LT;
+         return;
+      }
+   };
+
+   private static final CELL HD_INNER = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         if (holder.currentNode.isTarget) {
+            holder.value = holder.pointer++;
+            if ('<' == holder.jobStart[holder.cp][holder.pointer-2]) holder.value--;
+            holder.xmlState = S_TARGET_INNER;
+         } else {
+            holder.pointer++;         
+            holder.xmlState = S_INNER;   
+         }
+         return;
+      }
+   };
+
+   private static final CELL HD_BANG = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_BANG;
+         return ;
+      }
+   };      
+
+   private static final CELL HD_DASH = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_DASH;
+         return ;
+      }
+   };  
+
+   private static final CELL HD_2DASH = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_2DASH;
+         return ;
+      }
+   };     
+
+   private static final CELL HD_MINUS_DASH = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_MINUS_DASH;
+         return ;
+      }
+   };        
+
+   private static final CELL HD_MINUS_2DASH = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_MINUS_2DASH;
+         return ;
+      }
+   };       
+
+   private static final CELL HD_PI = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.pointer++;
+         holder.xmlState = S_PI;
+         return ;
+      }
+   };       
+
+   private static final CELL HD_CHAR = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.tagName = holder.pointer++;
+         holder.xmlState = S_TAG_BEGIN;
+         return ;
+      }
+   };     
+
+   private static final CELL HD_TAG_CLOSE = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         // Move pointer past the '>' character
+         holder.pointer++;
+         
+         // Check if this is a self-closing tag (e.g., <tag/>)
+         // Self-closing tags have '/' as the second-to-last character before '>'
+         boolean isSelfClosed = holder.jobStart[holder.cp][holder.pointer - 2] == '/';
+         
+         if (isSelfClosed) {
+            // For self-closing tags, we move back to the parent node
+            // and set the appropriate state based on whether parent is a target
+            holder.currentNode = holder.currentNode.parent;
+            
+            // If parent is a target node, we continue processing inner content
+            // Otherwise, we process regular content
+            if (holder.currentNode.isTarget) {
+               holder.xmlState = S_TARGET_INNER;
+               holder.value = holder.pointer;
+            } else {
+               holder.xmlState = S_INNER;
+            }
+            return;
+         }
+         
+         // For regular closing tags (e.g., </tag>), we continue with inner content
+         holder.xmlState = S_INNER;
+      }
+   };
+   
+   private static final CELL HD_LT = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.valEnd = holder.pointer++;
+         holder.xmlState = S_LT;
+         return;
+      }
+   };
+
+   private static final CELL HD_SLASH = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         holder.tagName = ++holder.pointer;
+         holder.xmlState = S_SLASH;
+         holder.hTagName = 0;
+         return;
+      }
+   };
+
+   private static final CELL HD_ENDTAG_NAME = new CELL() {
+      @Override
+      public void call(xmlBluePrintHolder holder) {
+         // Step 1: Mark the end of the tag name (current pointer points to the first char after the tag name)
+         holder.tagNameEnd = holder.pointer++;
+
+         // Compute hash for the tag name if not already computed
+         if (holder.hTagName == 0) {
+            holder.hTagName = hash(holder.jobStart[holder.cp], holder.tagName, holder.tagNameEnd);
+         }
+
+         // Step 2: Check if we have the closing '>' immediately after the tag name
+         if (holder.jobStart[holder.cp][holder.pointer - 1] != '>') {
+            // Missing '>', go to state to handle until we find '>'
+            holder.xmlState = S_GT_ONLY;
+            return;
+         }
+
+
+        // Step 3: If we are currently skipping an unregistered branch (skipDepth > 0)
+        if (holder.skipDepth > 0) {
+            // If this tag matches the skipName, decrement depth
+            if (holder.hTagName == holder.skipName) {
+                holder.skipDepth--;
+            }
+
+            // After processing, check if we have exited the skipped branch
+            if (holder.skipDepth == 0) {
+                // Clear skipName when exiting
+                holder.skipName = 0;
+                // We are now back to the registered branch
+                // Set state based on whether current node is a target
+                if (holder.currentNode.isTarget) {
+                    holder.xmlState = S_TARGET_INNER;
+                    holder.value = holder.pointer;
+                } else {
+                    holder.xmlState = S_INNER;
+                }
+            } else {
+                // Still inside a skipped branch
+                holder.xmlState = S_UNREGIST_BRANCH;
+            }
+            return;
+        }
+
+         // Step 4: We are in a registered branch (skipDept == 0)
+         // Check if the end tag matches the start tag (by comparing hashes)
+         if (holder.hTagName != holder.currentNode.tagHash) {
+            // Mismatch: end tag does not match the start tag
+            if (!holder.bluePrint.errorHandler.call(holder.bluePrint.errorToken, holder, EV_END_NE_BEGIN, 0, 0, 0, 0)) {
+               // If the error handler did not consume the error, move to next XML
+               HD_NEXT_XML(holder);
+            }
+            return;
+         }
+
+         // Step 5: Tags match, proceed to handle the closing tag
+         holder.currentNode.HD_CLOSINGTAG.call(holder);
+      }
+   };
+   
 };
 
 

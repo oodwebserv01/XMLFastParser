@@ -16,13 +16,10 @@ public class xmlBluePrintHolder {
         return pointer;
     }
 
-    public byte[] getXmlName() {
-        return jobName[cp] ;
+    public Object getTokenFile() {
+        return tokenFile[cp] ;
     }
 
-    public int getXmlNameLength() {
-        return jobNameLength[cp] ;
-    }
 
     // ==========================================
     // ROUTING CONTEXT (Populated by xmlBluePrint)
@@ -47,7 +44,6 @@ public class xmlBluePrintHolder {
     public long ignoreTagHash;           // Hash of tag being ignored
     public int ignoreDepth;              // Nesting depth of ignore tag
     // ThreadContext associated with this holder (set by xmlBluePrint during worker initialization)
-    public XML2TXT.ThreadContext threadContext;
 
     // ==========================================
     // HANDLERS & TOKENS
@@ -86,11 +82,10 @@ public class xmlBluePrintHolder {
 // Use static VarHandle.fullFence() method directly
 
 // Add new job to job queue
-    boolean pushJob(byte[] start, int length, byte[] name, int nameLength) {
+    boolean pushJob(byte[] start, int length, Object tokenFile) {
         if (0 != ((cp - pp - 1) & jobQueMask)) {
             int _pp = (pp + 1) & jobQueMask;
-            jobName[_pp] = name;
-            jobNameLength[_pp] = nameLength;
+            this.tokenFile[_pp] = tokenFile;
             jobStart[_pp] = start;
             jobLength[_pp] = length;
             // StoreLoad barrier: ensure element writes visible before pp update
@@ -110,7 +105,7 @@ public class xmlBluePrintHolder {
 
     // Get job from job queue
     boolean nextJob() {
-        if (cp != pp && !xmlBluePrint.forceShutdown) {
+        if (cp != pp && !bluePrint.forceShutdown) {
             boolean wasRootClosed = rootClosed;
             ready2down = false;
             charset = java.nio.charset.StandardCharsets.UTF_8;
@@ -140,7 +135,7 @@ public class xmlBluePrintHolder {
             // reaching the actual </root>.
             if (!wasRootClosed && rootHandler != null) {
                 rootHandler.call(rootIdToken, this,
-                        xmlBluePrint.EV_CLOSE_TAG, 0, 0, 0, 0);
+                        bluePrint.EV_CLOSE_TAG, 0, 0, 0, 0);
             }
             rootClosed = false;  // Reset root closed flag for new job
 
@@ -208,6 +203,7 @@ public class xmlBluePrintHolder {
 
 
     /* -- CONSTRUCTION RELATE -- */    
+    xmlBluePrint bluePrint = null;
     xmlBluePrintNode currentNode = null; // current brach
     Thread myThread = null; volatile int threadNo = -1;
     boolean ready2down = true;
@@ -221,8 +217,7 @@ public class xmlBluePrintHolder {
     private final int jobQueMask = jobQueSize-1;
 
     /* -- Ring Type Job Queue size 2^n -- */
-    volatile byte[][] jobName = new byte[jobQueSize][]; // byte[] ชื่อไฟล์
-    volatile int[] jobNameLength = new int[jobQueSize]; // ขนาดชื่อไฟล์
+    volatile Object[] tokenFile = new Object[jobQueSize]; // byte[] ชื่อไฟล์
     volatile byte[][] jobStart = new byte[jobQueSize][]; // byte[] แต่ละงาน
     volatile int[] jobLength = new int[jobQueSize]; // ขนาดของงาน
     volatile int cp = 0;
