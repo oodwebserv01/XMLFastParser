@@ -7,107 +7,115 @@ import java.util.concurrent.locks.LockSupport;
 
 public class xmlBluePrintHolder {
 
+    // ==========================================
+    // Interface
+    // ==========================================
+
+    // use when user access to error xml
     public byte[] getByteBuffer(){
         if (xmlState <= xmlBluePrint.S_ROOT_BEGIN) return null;
-        return jobStart[cp] ;
+        return jobStart[inprogress] ;
     }
 
+    // use when user want error location
     public int getErrorLocation(){
         return pointer;
     }
 
+    // use when user handle event , this is token user deposit when pushJob
     public Object getTokenFile() {
-        return tokenFile[cp] ;
+        return tokenFile[inprogress] ;
     }
 
+    // use when user handle event , require for some algorithm that handle each thread separate
+    public int getThreadNO() {
+        return this.threadNo;
+    }
 
     // ==========================================
-    // ROUTING CONTEXT (Populated by xmlBluePrint)
+    // Engine
     // ==========================================
-
-    // All target hashes for fast lookup during parsing
-    public java.util.Set<Long> targetHashes;
-
-    // Current target hash being processed
-    public long currentTargetHash;
-
-    // Children of current target for path matching
-    public java.util.Map<Long, xmlBluePrintNode> currentChildren;
-
-    // Current target node (for handler/token access)
-    public xmlBluePrintNode currentTargetNode;
-
-    // Current child node (for child handler/token access)
-    public xmlBluePrintNode currentChildNode;
 
     // For ignore tag tracking
     public long ignoreTagHash;           // Hash of tag being ignored
     public int ignoreDepth;              // Nesting depth of ignore tag
     // ThreadContext associated with this holder (set by xmlBluePrint during worker initialization)
 
-    // ==========================================
-    // HANDLERS & TOKENS
-    // ==========================================
-
-    public Object rootIdToken;
-    public xmlBluePrintCall rootHandler;
-    public xmlBluePrintCall errorHandler;
-
-    public Object errorToken;
-
-    // ==========================================
-    // UTILITY METHODS
-    // ==========================================
-
-    public boolean isTargetRegistered(long hash) {
-        return targetHashes != null && targetHashes.contains(hash);
-    }
-
-    public xmlBluePrintNode getChildNode(long hash) {
-        return currentChildren != null ? currentChildren.get(hash) : null;
-    }
-
-    public String getCurrentPath() {
-        if (currentTargetNode == null) return null;
-        StringBuilder path = new StringBuilder();
-        xmlBluePrintNode node = currentTargetNode;
-        while (node != null && node.parent != null && node.parent.tagHash != 0) {
-            path.insert(0, "/" + node.tagHash);
-            node = node.parent;
-        }
-        return path.toString();
-    }
-
     // VarHandle for StoreLoad barrier (array element visibility) - JDK 9+
-// Use static VarHandle.fullFence() method directly
+    // Use static VarHandle.fullFence() method directly
 
-// Add new job to job queue
+    /*
+        nextPush    inprogress   nextPull    readyToDown
+        1                  0                1              1                           0 job    0 done  3 free   <start>
+
+        2                  0                1              1                           1 job    0 done  2 free
+        3                  0                1              1                           2 job    0 done  1 free
+        0                  0                1              1                           3 job    0 done  0 free
+
+        0                  1                1              0                           2 job    0 done  0 free
+        0                  1                1              1                           2 job    1 done  0 free
+        0                  2                1              0                           1 job    1 done  0 free
+        0                  2                1              1                           1 job    2 done  0 free
+        0                  3                1              0                           0 job    2 done  0 free
+        0                  3                1              1                           0 job    3 done  0 free
+
+        0                  3                2              1                           0 job    2 done  2 free
+        0                  3                3              1                           0 job    1 done  3 free
+        0                  3                0              1                           0 job    0 done  3 free
+
+     */
+
+    // Check if there is space in the job queue
+    int jobQueSpace() {
+        return (nextPull - nextPush - 1 ) & jobQueMask;
+    };
+
+    // Check if jobs in queue
+    int jobsInQue() {
+        return (nextPush - inprogress -1) & jobQueMask;
+    };
+
+    // Check job already done in queue
+    int doneInQue(){
+        return (inprogress - nextPull + ready2down) & jobQueMask;
+    };
+
+    // Add new job to job queue
     boolean pushJob(byte[] start, int length, Object tokenFile) {
-        if (0 != ((cp - pp - 1) & jobQueMask)) {
-            int _pp = (pp + 1) & jobQueMask;
-            this.tokenFile[_pp] = tokenFile;
-            jobStart[_pp] = start;
-            jobLength[_pp] = length;
-            // StoreLoad barrier: ensure element writes visible before pp update
+        if (0 != jobQueSpace()) {
+            int _nextPush = (nextPush + 1) & jobQueMask;
+            this.tokenFile[_nextPush] = tokenFile;
+            jobStart[_nextPush] = start;
+            jobLength[_nextPush] = length;
+            // StoreLoad barrier: ensure element writes visible before nextPush update
             VarHandle.fullFence();
-            pp = _pp;
+            nextPush = _nextPush;
             LockSupport.unpark(myThread);
             return true;
         } else {
             return false;
         }
-    }
+    };
 
-    // Check if there is space in the job queue
-    int jobQueSpace() {
-        return (cp - pp - 1) & jobQueMask;
-    }
+    // pull the doned job out of queue
+    Object pullJob() {
+        if (0 != doneInQue()) {
+            Object tokenFile = this.tokenFile[nextPull];
+            // StoreLoad barrier: ensure element writes visible before nextPush update
+            VarHandle.fullFence();
+            nextPull = (nextPull + 1) & jobQueMask;
+            LockSupport.unpark(myThread);
+            return tokenFile;
+        } else {
+            return null;
+        }
+    };
 
     // Get job from job queue
     boolean nextJob() {
-        if (cp != pp && !bluePrint.forceShutdown) {
+        if (0!=jobsInQue() && !bluePrint.forceShutdown) {
             boolean wasRootClosed = rootClosed;
-            ready2down = false;
+            ready2down = 0;
             charset = java.nio.charset.StandardCharsets.UTF_8;
             fHeaderCharset = false;
             pointer = 0;
@@ -134,37 +142,48 @@ public class xmlBluePrintHolder {
             // even when the root open handler returned false or an error occurred before
             // reaching the actual </root>.
             if (!wasRootClosed && rootHandler != null) {
-                rootHandler.call(rootIdToken, this,
+                rootHandler.call(rootToken, this,
                         bluePrint.EV_CLOSE_TAG, 0, 0, 0, 0);
             }
             rootClosed = false;  // Reset root closed flag for new job
 
-            cp = (cp + 1) & jobQueMask;
+            inprogress = (inprogress + 1) & jobQueMask;
             return true;
         } else {
-            pointer = jobLength[this.cp];
-            ready2down = true;
+            pointer = jobLength[this.inprogress];
+            ready2down = 1;
             return false;
         }
     }
+
+    xmlBluePrintHolder(int Nof2Power) {
+        // Ensure exponent at least 2 (queue size >= 4)
+        int size = 1 << ( Nof2Power>1? Nof2Power: 2 ); // 2^Nof2Power
+        this.jobQueSize = size;
+        this.jobQueMask = size - 1;
+        this.tokenFile = new Object[size];
+        this.jobStart = new byte[size][];
+        this.jobLength = new int[size];
+    }
+
 
     /**
      * Get the target distance log for the current job.
      * Returns arrays of (distance, targetTagHash) pairs.
      */
-    public long[] getLogDistances() {
+    long[] getLogDistances() {
         long[] result = new long[logSize];
         System.arraycopy(logDistances, 0, result, 0, logSize);
         return result;
     }
 
-    public long[] getLogHashes() {
+    long[] getLogHashes() {
         long[] result = new long[logSize];
         System.arraycopy(logHashes, 0, result, 0, logSize);
         return result;
     }
 
-    public int getLogSize() {
+    int getLogSize() {
         return logSize;
     }
 
@@ -206,13 +225,9 @@ public class xmlBluePrintHolder {
     xmlBluePrint bluePrint = null;
     xmlBluePrintNode currentNode = null; // current brach
     Thread myThread = null; volatile int threadNo = -1;
-    boolean ready2down = true;
+    boolean ready2down = 1;
     boolean rootClosed = false;  // Track if root close tag was processed
     
-    public int getThreadNO() {
-        return this.threadNo;
-    }
-
     private int jobQueSize;
     private int jobQueMask;
 
@@ -220,17 +235,8 @@ public class xmlBluePrintHolder {
     volatile Object[] tokenFile;
     volatile byte[][] jobStart;
     volatile int[] jobLength;
-    volatile int cp;
-    volatile int pp;
+    volatile int nextPush = 1;
+    volatile int inprogress = 0;
+    volatile int nextPull =1 ;
 
-    public xmlBluePrintHolder(int Nof2Power) {
-        // Ensure exponent at least 2 (queue size >= 4)
-        int size = 1 << ( Nof2Power>1? Nof2Power: 2 ); // 2^Nof2Power
-        this.jobQueSize = size;
-        this.jobQueMask = size - 1;
-        this.tokenFile = new Object[size];
-        this.jobStart = new byte[size][];
-        this.jobLength = new int[size];
-    }
-    
 }

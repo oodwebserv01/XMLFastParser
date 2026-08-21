@@ -8,64 +8,35 @@ import java.util.concurrent.locks.LockSupport;
 public class xmlBluePrint {
 /*
 Usage Instructions
+
+ - Create Handler for events 
+   EX.
+      -- rootHandler EV_CLOSE_TAG : this will awake you when the xml file is done
+      -- errorHandler : write log , which xml can't process 
+      -- anyTagHandler : take the data field you want , keep it for assembling later
+      -- entityTagHandler : assembly your data fields into one data row/package
+
+ - Register rootHandler  this will called when the xml parsed 
+
+ - Register errorHandler this will called when the parser can't extract data due to xml too much  error
+
  - Register all paths you want to extract data from.
-   Paths start from the FIRST CHILD OF ROOT (root itself is NOT included in the path).
-   Root tag is handled separately via rootRegist().
 
-   rootRegist(xmlBluePrintCallR, idTokenR);   // Handler for root element
-   errorRegist(xmlBluePrintCallE, idTokenE);  // Error handler
+ - Set the number of threads to use for data processing
 
-   // XML: <root><a><b><c>value</c></b></a></root>
-   // Register path to <c> -> "/a/b/c" (starts from 'a', first child of root)
-   regist("/a/b/c", xmlBluePrintCall1, idTokenX);
-   regist("/a/b", xmlBluePrintCall2, idTokenY);
+ - Set size of job queue, this is the size same but not share for every thread 
+   -- if set 2 : queue size is 4 but can keep only 3 inside., and  if 2 thread then total is 6 can keep.
+   -- if set 3 : queue size is 8 cankeep 7 , and  if 2 thread then total is 14 can keep.
+   -- if set 4 : queue size is 16 cankeep 15 , and  if 2 thread then total is 30 can keep.
+   it's 2^N size  queue , minus 1 because it need  to reserved.
 
- - After registering all paths, set the number of threads to use for data processing
-    setThreadCount(n);
+ - Run parser
 
- - Check if the job queue has space available. If there is space, you can submit jobs
+ - Push (many )jobs plus tokenFile into parser, tokenFile is the objectt you deposit to parser so you can access to it inside Handler vie holder
+ - Pull the already done job ( actualy tokenFile you deposit ) this will help you life more easy due to many data line from many thread become one line with this method 
+      take you tokenFile back so you can process your data and reuse your resort.
+      <<WARNING>>  Processer thread will stop if the job queue full with jabs that already done, you need to pull it out .
 
-    // get first xml byte[] => src
-    while (0 < remainingJob) {
-        if (0 == xmlBluePrint.jobQueSpace()) {
-            xmlBluePrint.run();
-            sleep(50);
-        } else {
-            xmlBluePrint.pushJob(src.pointer, src.length, src.xmlName, src.xmlNameLength);
-        }
-    }
-    xmlBluePrint.run();
-
- - Waiting for events
-    -- Implement xmlBluePrintCall to receive
-      --- idToken {Object you specified during registration, used to identify which path this event belongs to}
-      --- xmlBluePrintHolder { Contains data for the job being processed }
-      --- event { 0 = unknown_error, 1 = openTag, 2 = closeTag, 3 = attribute, 4 = innerText }
-      --- attributeName { byte[] name of the attribute of the found tag }
-      --- attributeNameLength { int length of the attribute name }
-      --- attributeValue { byte[] value of the found attribute OR innerText of the found tag }
-      --- attributeValueLength { int length of the attribute value OR innerText of the found tag }
-
- - Unregistered Branch Handling (Important):
-   * No depth limit (not limited to 32 levels)
-   * Tracks FIRST unregistered tag name (by hash) + nesting depth
-   * On same tag name again: depth++ (open) or depth-- (close)
-   * When depth returns to 0: exits skip mode, resumes registered branch
-   * Does NOT validate XML syntax in unregistered branches
-   * Malformed XML in unregistered branches is silently ignored
-
- - holder.getThreadNO() - Get Worker Thread Number (v2.1+)
-   * Returns the 0-based thread index of the worker processing the current job
-   * Usage: int threadNo = holder.getThreadNO();
-   * Useful for: per-thread output routing, thread-local storage, debugging
-
- - xmlBluePrint.hash(...) - FNV-1a Hash with SplitMix64 Finalizer (v2.1+)
-   * Static method to compute 64-bit hash of tag/attribute names
-   * Overloads: hash(byte[] buff, int length) and hash(byte[] buff, int begin, int end)
-   * Algorithm: FNV-1a (offset basis 0xCBF29CE484222325L, prime 0x100000001B3L) + SplitMix64 finalizer
-   * Stops early on ':' or '}' characters (namespace handling)
-   * Used internally for path registration and tag matching during parsing
-   * Public API available for custom hash-based lookups
  */
 
    // ============================================================
@@ -191,7 +162,7 @@ Usage Instructions
                holder.threadNo = holderIndex;
 
                // wait until job come
-               while (!shuttingdown && (holder.cp == holder.pp)) LockSupport.parkNanos(5_000_000L);
+               while (!shuttingdown && (holder.inprogress == holder.nextPush)) LockSupport.parkNanos(5_000_000L);
 
                while (!shuttingdown ) {
                   // Handle pause - park until resumed
@@ -199,20 +170,19 @@ Usage Instructions
 
                   // Get next job from holder's queue (advances cp, resets parse state)
                   if (!holder.nextJob()) {
-                System.out.println("DEBUG: Worker thread " + holder.threadNo + " jobLength=" + holder.jobLength[holder.cp] + ", initial pointer=" + holder.pointer);
+                System.out.println("DEBUG: Worker thread " + holder.threadNo + " jobLength=" + holder.jobLength[holder.inprogress] + ", initial pointer=" + holder.pointer);
                      // No job available, wait
-                     while (!shuttingdown && (holder.cp == holder.pp)) LockSupport.parkNanos(5_000_000L);
+                     while (!shuttingdown && (holder.inprogress == holder.nextPush)) LockSupport.parkNanos(5_000_000L);
                      continue;
                   }
 
-                  holder.ready2down = false;
                   // Request prediction after first target or at root
                   // We'll trigger prediction when we have at least one target in log
                   holder.predictionActive = false;
                   holder.predictionValid = true;
 
                   // Process entire XML document
-                  while (holder.pointer < holder.jobLength[holder.cp]) {
+                  while (holder.pointer < holder.jobLength[holder.inprogress]) {
                      // PREDICTIVE FAST-PATH: jump to predicted target positions
                      if (holder.predictionActive && holder.predictionValid
                          && holder.predictedIndex < holder.predictedLog.size) {
@@ -225,7 +195,7 @@ Usage Instructions
                            nextPredictedOffset = -1;
                         }
 
-                        if (nextPredictedOffset > holder.pointer && nextPredictedOffset < holder.jobLength[holder.cp]) {
+                        if (nextPredictedOffset > holder.pointer && nextPredictedOffset < holder.jobLength[holder.inprogress]) {
                            // Jump directly to predicted target start
                            holder.pointer = nextPredictedOffset;
                            // Peek: verify tag at predicted position
@@ -240,7 +210,7 @@ Usage Instructions
                      }
 
                      // Normal FSM
-                     int idx = holder.jobStart[holder.cp][holder.pointer] & 0xFF;
+                     int idx = holder.jobStart[holder.inprogress][holder.pointer] & 0xFF;
                      System.out.println("INVOKING CALLBACK: state=" + holder.xmlState + ", idx=" + idx + ", handler=" + TOC[holder.xmlState][idx].getClass().getName());
                      TOC[holder.xmlState][idx]
                         .call(holder);
@@ -271,31 +241,40 @@ Usage Instructions
       return true;
    };
 
+   volatile int nextPush = 0; // round-robin index for direct pushJob
+   // push new job to threads
    public boolean pushJob(byte[] start, int length, Object tokenFile) {
-      int attempts = 0;
-      while (attempts < threadCount) {
-         xmlBluePrintHolder holder = holders[nextHolder];
-         if (holder.pushJob(start, length, tokenFile)) {
-            // Successfully pushed to holder
-            nextHolder = (nextHolder + 1) % threadCount;
-            return true;
-         }
-         // move to next holder
-         nextHolder = (nextHolder + 1) % threadCount;
-         attempts++;
+      for (int attempts = 0; attempts < threadCount); attempts++ {
+         xmlBluePrintHolder holder = holders[nextPush];
+         nextPush = (nextPush + 1) % threadCount;
+         if (holder.pushJob(start, length, tokenFile))  return true;
       }
       // all holders full
       this.run();
       return false;
    };
 
+   volatile int nextPull = 0; // round-robin index for direct pullJob   
+   // pull finished job from threads
+   public Object pullJob() {
+      Object tokenFile = null;
+      xmlBluePrintHolder holder = null;
+      for  (int attempts = 0; attempts < threadCount; attempts++) {
+         holder = holders[nextPull];
+         nextPull = (nextPull + 1) % threadCount;
+         if (null != (tokenFile = holder.pullJob()))  return tokenFile;
+      }
+      // there is no job done 
+      return null;   
+   };
+
    // this function for checking status if Parser is ready to down;
    public boolean isReadyToDown(){
-      boolean ret = true;
+      int ret = 1;
       for (int i = holders.length-1; i>=0; i-- ) {
          ret &= holders[i].ready2down;
       }
-      return ret;
+      return (ret > 0);
    };
 
    /**
@@ -334,14 +313,15 @@ Usage Instructions
       }
 
       // wait for all workers done
-      boolean ready2down,jobDone,ready;
+      boolean jobDone,ready;
+      int ready2down=1;
       do {
-         ready2down = true; jobDone=true;
+         ready2down = 1; jobDone=true;
          for (int i = this.holders.length -1; i>=0; i--) {
             ready2down &= this.holders[i].ready2down;
-            jobDone &= (this.holders[i].cp == this.holders[i].pp);
+            jobDone &= (this.holders[i].inprogress== this.holders[i].nextPush);
          }
-         ready = ready2down && (forceShutdown || jobDone);
+         ready = (ready2down>0) && (forceShutdown || jobDone);
          if (!ready) LockSupport.parkNanos(50_000_000L);
       } while (!ready);
       // Join all workers
@@ -960,7 +940,6 @@ Usage Instructions
    volatile boolean paused = false; // Used to freeze job
    volatile boolean shuttingdown = false; // Used to notify shutting down
    volatile boolean forceShutdown = false; // Used to force shutdown
-   volatile int nextHolder = 0; // round-robin index for direct pushJob
     
    public static class LogEntry {
       public final long[] distances;  // bytes from root/target to next target
@@ -1097,9 +1076,9 @@ Usage Instructions
     * Reads tag name starting at pointer and hashes it for comparison.
     */
    private static boolean verifyTagAtPointer(xmlBluePrintHolder holder, long expectedHash) {
-      byte[] buf = holder.jobStart[holder.cp];
+      byte[] buf = holder.jobStart[holder.inprogress];
       int originalPtr = holder.pointer;
-      int len = holder.jobLength[holder.cp];
+      int len = holder.jobLength[holder.inprogress];
 
       final int TOLERANCE = 5;
 
@@ -1501,7 +1480,7 @@ Usage Instructions
          holder.valEnd = ++holder.pointer; 
 
          // Extract charset value from jobStart[cp] between value and valEnd-1
-         byte[] buf = holder.jobStart[holder.cp];
+         byte[] buf = holder.jobStart[holder.inprogress];
          int valueStart = holder.value;
          int valueEnd = holder.valEnd - 1; // exclusive end
 
@@ -1627,7 +1606,7 @@ Usage Instructions
    private static final CELL HD_ROOT_POSIBLE = new CELL() {
       @Override
       public void call(xmlBluePrintHolder holder) {
-         if ('/' == holder.jobStart[holder.cp][holder.pointer-1]) {
+         if ('/' == holder.jobStart[holder.inprogress][holder.pointer-1]) {
             holder.pointer++;
             holder.xmlState = S_HEADER;
          } else {
@@ -1643,7 +1622,7 @@ Usage Instructions
       public void call(xmlBluePrintHolder holder) {
          // Capture hRootName use for close tag matching
          holder.tagNameEnd = holder.pointer;
-         holder.hRootName = hash(holder.jobStart[holder.cp],holder.tagName,holder.tagNameEnd);
+         holder.hRootName = hash(holder.jobStart[holder.inprogress],holder.tagName,holder.tagNameEnd);
          holder.currentNode = holder.bluePrint.root;
 
          // Initialize target distance log
@@ -1672,7 +1651,7 @@ Usage Instructions
       @Override
       public void call(xmlBluePrintHolder holder) {
          holder.tagNameEnd = holder.pointer;
-         long hTagName = hash(holder.jobStart[holder.cp], holder.tagName, holder.tagNameEnd);
+         long hTagName = hash(holder.jobStart[holder.inprogress], holder.tagName, holder.tagNameEnd);
 
          // If we are currently skipping an unregistered  branch (skipDepth > 0)
          if (holder.skipDepth > 0) {
@@ -1786,7 +1765,7 @@ Usage Instructions
    private static final CELL HD_SLASH_INTARGET = new CELL() {
       @Override
       public void call(xmlBluePrintHolder holder) {
-         if ('>' != holder.jobStart[holder.cp][++holder.pointer]) {
+         if ('>' != holder.jobStart[holder.inprogress][++holder.pointer]) {
             if (! holder.bluePrint.errorHandler.call(holder.bluePrint.errorToken, holder, EV_EXPECTED_END, 0,0,0,0)) {
                HD_NEXT_XML(holder);
                return;
@@ -1807,7 +1786,7 @@ Usage Instructions
    private static final CELL HD_TO_INNER = new CELL() {
       @Override
       public void call(xmlBluePrintHolder holder) {
-         if ('/' == holder.jobStart[holder.cp][holder.pointer-1]) {
+         if ('/' == holder.jobStart[holder.inprogress][holder.pointer-1]) {
             holder.currentNode = holder.currentNode.parent;
             holder.xmlState = (holder.currentNode.isTarget)?S_TARGET_INNER: S_INNER;    
             holder.value = holder.pointer;
@@ -1872,8 +1851,8 @@ Usage Instructions
       @Override
       public void call(xmlBluePrintHolder holder) {
          holder.valEnd = holder.pointer++;
-         boolean isLastAttr = ('>' == holder.jobStart[holder.cp][holder.pointer-1]);
-         boolean isSelfClose = (isLastAttr && '/' == holder.jobStart[holder.cp][holder.pointer-2]);
+         boolean isLastAttr = ('>' == holder.jobStart[holder.inprogress][holder.pointer-1]);
+         boolean isSelfClose = (isLastAttr && '/' == holder.jobStart[holder.inprogress][holder.pointer-2]);
 
          // case self close tag : remove '/' from last char
          if (isSelfClose) holder.valEnd--; 
@@ -1933,7 +1912,7 @@ Usage Instructions
       public void call(xmlBluePrintHolder holder) {
          if (holder.currentNode.isTarget) {
             holder.value = holder.pointer++;
-            if ('<' == holder.jobStart[holder.cp][holder.pointer-2]) holder.value--;
+            if ('<' == holder.jobStart[holder.inprogress][holder.pointer-2]) holder.value--;
             holder.xmlState = S_TARGET_INNER;
          } else {
             holder.pointer++;         
@@ -2014,7 +1993,7 @@ Usage Instructions
          
          // Check if this is a self-closing tag (e.g., <tag/>)
          // Self-closing tags have '/' as the second-to-last character before '>'
-         boolean isSelfClosed = holder.jobStart[holder.cp][holder.pointer - 2] == '/';
+         boolean isSelfClosed = holder.jobStart[holder.inprogress][holder.pointer - 2] == '/';
          
          if (isSelfClosed) {
             // For self-closing tags, we move back to the parent node
@@ -2064,11 +2043,11 @@ Usage Instructions
 
          // Compute hash for the tag name if not already computed
          if (holder.hTagName == 0) {
-            holder.hTagName = hash(holder.jobStart[holder.cp], holder.tagName, holder.tagNameEnd);
+            holder.hTagName = hash(holder.jobStart[holder.inprogress], holder.tagName, holder.tagNameEnd);
          }
 
          // Step 2: Check if we have the closing '>' immediately after the tag name
-         if (holder.jobStart[holder.cp][holder.pointer - 1] != '>') {
+         if (holder.jobStart[holder.inprogress][holder.pointer - 1] != '>') {
             // Missing '>', go to state to handle until we find '>'
             holder.xmlState = S_GT_ONLY;
             return;
