@@ -162,7 +162,7 @@ Usage Instructions
                holder.threadNo = holderIndex;
 
                // wait until job come
-               while (!shuttingdown && (holder.inprogress == holder.nextPush)) LockSupport.parkNanos(5_000_000L);
+               while (!shuttingdown && !holder.nextJob()) LockSupport.parkNanos(5_000_000L);
 
                while (!shuttingdown ) {
                   // Handle pause - park until resumed
@@ -258,11 +258,11 @@ Usage Instructions
    // pull finished job from threads
    public Object pullJob() {
       Object tokenFile = null;
-      xmlBluePrintHolder holder = null;
+      xmlBluePrintHolder _holder = null;
       for  (int attempts = 0; attempts < threadCount; attempts++) {
-         holder = holders[nextPull];
+         _holder = this.holders[nextPull];
          nextPull = (nextPull + 1) % threadCount;
-         if (null != (tokenFile = holder.pullJob()))  return tokenFile;
+         if (null != (tokenFile = _holder.pullJob()))  return tokenFile;
       }
       // there is no job done 
       return null;   
