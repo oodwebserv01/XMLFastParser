@@ -117,7 +117,7 @@ public class xmlBluePrintHolder {
         // even when the root open handler returned false or an error occurred before
         // reaching the actual </root>.
         if (!rootClosed && bluePrint.rootHandler != null) {
-            bluePrint.rootHandler.call(rootToken, this,
+            bluePrint.rootHandler.call(bluePrint.rootToken, this,
                     xmlBluePrint.EV_CLOSE_TAG, 0, 0, 0, 0);
         }        
         rootClosed = true;
@@ -225,7 +225,7 @@ public class xmlBluePrintHolder {
     xmlBluePrint bluePrint = null;
     xmlBluePrintNode currentNode = null; // current brach
     Thread myThread = null; volatile int threadNo = -1;
-    boolean ready2down = 1;
+    int ready2down = 1;
     boolean rootClosed = false;  // Track if root close tag was processed
 
     private int jobQueSize = 4;

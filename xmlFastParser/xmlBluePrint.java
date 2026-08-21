@@ -244,7 +244,7 @@ Usage Instructions
    volatile int nextPush = 0; // round-robin index for direct pushJob
    // push new job to threads
    public boolean pushJob(byte[] start, int length, Object tokenFile) {
-      for (int attempts = 0; attempts < threadCount); attempts++ {
+      for (int attempts = 0; attempts < threadCount; attempts++ ) {
          xmlBluePrintHolder holder = holders[nextPush];
          nextPush = (nextPush + 1) % threadCount;
          if (holder.pushJob(start, length, tokenFile))  return true;
