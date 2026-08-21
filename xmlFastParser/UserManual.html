@@ -40,10 +40,11 @@
             <li><a href="#holder-api">5. Holder API & Waiting for Callbacks</a></li>
             <li><a href="#threading">6. Thread Configuration</a></li>
             <li><a href="#job-submission">7. Submitting XML Jobs</a></li>
-            <li><a href="#lifecycle">8. Lifecycle Control</a></li>
-            <li><a href="#predictive">9. Predictive Shortcuts (Advanced)</a></li>
-            <li><a href="#best-practices">10. Best Practices</a></li>
-            <li><a href="#troubleshooting">11. Troubleshooting</a></li>
+            <li><a href="#pull-job">8. Retrieving Completed Jobs</a></li>
+            <li><a href="#lifecycle">9. Lifecycle Control</a></li>
+            <li><a href="#predictive">10. Predictive Shortcuts (Advanced)</a></li>
+            <li><a href="#best-practices">11. Best Practices</a></li>
+            <li><a href="#troubleshooting">12. Troubleshooting</a></li>
         </ul>
     </div>
 
@@ -95,7 +96,8 @@ public class MyParser {
         // 6. Wait and shutdown
         bp.shutdown(false);
     }
-}</code></pre>
+}
+</code></pre>
     </section>
 
     <section id="registration">
@@ -282,7 +284,8 @@ bp.run();
 bp.pushJob(xmlBytes, len, nameBytes, nameLen);
 latch.await();  // Block until callback signals completion
 
-ParseResult result = resultRef.get();</code></pre>
+ParseResult result = resultRef.get();
+</code></pre>
 
         <h4>Pattern 2: BlockingQueue for Multiple Jobs</h4>
         <pre><code>import java.util.concurrent.BlockingQueue;
@@ -319,7 +322,8 @@ for (int i = 0; i < jobCounter.get(); i++) {
     process(r);
 }
 
-bp.shutdown(false);</code></pre>
+bp.shutdown(false);
+</code></pre>
 
         <h4>Pattern 3: CompletableFuture (Java 8+)</h4>
         <pre><code>import java.util.concurrent.CompletableFuture;
@@ -345,7 +349,8 @@ for (byte[] xml : xmlFiles) {
 
     // Process asynchronously
     f.thenAccept(result -> process(result));
-}</code></pre>
+}
+</code></pre>
 
         <h3>Thread Safety Notes</h3>
         <ul>
@@ -365,7 +370,8 @@ for (byte[] xml : xmlFiles) {
     String jobName = new String(holder.getXmlName(), 0, holder.getXmlNameLength());
     log.error("XML error in {} at offset {}: event={}", jobName, errorPos, event);
     return true;  // Continue with next job
-}, "error");</code></pre>
+}, "error");
+</code></pre>
 
         <div class="note">
             <strong>Error events:</strong> <code>EV_EOF_IN_ROOT (1001)</code> = unexpected EOF, <code>EV_END_NE_BEGIN (1003)</code> = closing tag mismatch. Return <code>false</code> to skip the rest of the current document.
@@ -373,7 +379,7 @@ for (byte[] xml : xmlFiles) {
     </section>
 
     <section id="threading">
-        <h2>5. Thread Configuration</h2>
+        <h2>6. Thread Configuration</h2>
 
         <pre><code>bp.setThreadCount(4);  // Must be called BEFORE run()
 bp.run();</code></pre>
@@ -391,7 +397,7 @@ bp.run();</code></pre>
     </section>
 
     <section id="job-submission">
-        <h2>6. Submitting XML Jobs</h2>
+        <h2>7. Submitting XML Jobs</h2>
 
         <h3>Push Job</h3>
         <pre><code>boolean success = bp.pushJob(xmlBytes, length, tokenFile);</code></pre>
@@ -412,8 +418,79 @@ bp.run();</code></pre>
 
         <p>Returns <code>false</code> if all holder queues are full.</p>
     </section>
+
+    <section id="pull-job">
+        <h2>8. Retrieving Completed Jobs</h2>
+
+        <h3>Pull Job</h3>
+        <pre><code>Object tokenFile = bp.pullJob();</code></pre>
+
+        <p>The <code>pullJob()</code> method retrieves the token object (user‑provided identifier) from the next completed XML job. It polls each holder’s internal done‑queue in a round‑robin fashion and returns the tokenFile that was originally submitted with <code>pushJob()</code>. If no job has completed yet, it returns <code>null</code>.</p>
+
+        <p>This enables a simple “pull‑based” processing model where the main thread can:</p>
+        <ul>
+            <li>Submit many jobs with <code>pushJob()</code></li>
+            <li>Repeatedly call <code>pullJob()</code> to collect completed tokens in order of completion</li>
+            <li>Match each token to its corresponding result (e.g., via a ConcurrentMap) once the callback has finished processing</li>
+        </ul>
+
+        <div class="note">
+            <strong>Thread‑safety:</strong> <code>pullJob()</code> is safe to call from any thread (typically the main thread) while worker threads are running.
+        </div>
+
+        <h3>Example: Pull‑Based Result Collection</h3>
+        <pre><code>import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
+
+// Map token → parsing result (filled by callbacks)
+ConcurrentHashMap<Object, ParseResult> results = new ConcurrentHashMap<>();
+
+xmlBluePrintCall handler = (idToken, holder, event, nb, ne, vb, ve) -> {
+    if (event == EV_CLOSE_TAG) {
+        // Build result from collected data
+        ParseResult result = ...;
+        // Store result using the tokenFile from holder
+        Object token = holder.getTokenFile();
+        results.put(token, result);
+    }
+    return true;
+};
+
+bp.regist("/catalog/book", handler, "book");
+bp.setThreadCount(4);
+bp.run();
+
+// Submit jobs
+for (byte[] xml : xmlFiles) {
+    String id = UUID.randomUUID().toString();
+    bp.pushJob(xml, xml.length, id.getBytes(), id.length());
+}
+
+// Pull completed jobs and process results
+int submitted = xmlFiles.length;
+int collected = 0;
+while (collected < submitted) {
+    Object token = bp.pullJob();
+    if (token != null) {
+        ParseResult r = results.remove(token);
+        if (r != null) {
+            process(r);
+            collected++;
+        }
+    } else {
+        // No completed job yet – sleep briefly to avoid busy‑wait
+        Thread.sleep(10);
+    }
+}
+
+bp.shutdown(false);
+</code></pre>
+
+        <p>Because callbacks are asynchronous, you typically combine <code>pullJob()</code> with a thread‑safe map (as shown) to transfer data from the worker thread (callback) to the consumer thread.</p>
+    </section>
+
     <section id="lifecycle">
-        <h2>7. Lifecycle Control</h2>
+        <h2>9. Lifecycle Control</h2>
 
         <h3>Start</h3>
         <pre><code>bp.run();  // Starts distributor + worker threads</code></pre>
@@ -432,7 +509,7 @@ bp.shutdown(true);   // Force: abandon pending jobs immediately</code></pre>
     </section>
 
     <section id="predictive">
-        <h2>8. Predictive Shortcuts (Advanced)</h2>
+        <h2>10. Predictive Shortcuts (Advanced)</h2>
 
         <p>XMLFastReader automatically learns structural fingerprints from processed XML files and uses them to accelerate parsing of similar files.</p>
 
@@ -461,7 +538,7 @@ xmlBluePrint.LogEntry[] allLogs = xmlBluePrint.getCollectedLogs();
     </section>
 
     <section id="best-practices">
-        <h2>9. Best Practices</h2>
+        <h2>11. Best Practices</h2>
 
         <h3>Registration</h3>
         <ul>
@@ -480,7 +557,7 @@ xmlBluePrint.LogEntry[] allLogs = xmlBluePrint.getCollectedLogs();
         <h3>Memory</h3>
         <ul>
             <li>Reuse byte buffers when possible</li>
-            <li>Holder queue: configurable size (2^N jobs, N≥2 => min 4 jobs each; default 512)</li>
+            <li>Holder queue: configurable size (2^N jobs, N≥2 => min 4 jobs each; default 4)</li>
             <li>Log store: 10K entries (fixed, ring buffer)</li>
         </ul>
 
@@ -493,7 +570,7 @@ xmlBluePrint.LogEntry[] allLogs = xmlBluePrint.getCollectedLogs();
     </section>
 
     <section id="troubleshooting">
-        <h2>10. Troubleshooting</h2>
+        <h2>12. Troubleshooting</h2>
 
         <table>
             <tr><th>Symptom</th><th>Cause</th><th>Solution</th></tr>

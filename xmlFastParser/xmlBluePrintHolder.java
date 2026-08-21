@@ -1,4 +1,3 @@
-
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.nio.charset.Charset;
@@ -46,6 +45,7 @@ public class xmlBluePrintHolder {
 
     /*
         nextPush    inprogress   nextPull    readyToDown
+        1                  0                1              0                           0 job    0 done  3 free   <imposible>
         1                  0                1              1                           0 job    0 done  3 free   <start>
 
         2                  0                1              1                           1 job    0 done  2 free
@@ -62,7 +62,6 @@ public class xmlBluePrintHolder {
         0                  3                2              1                           0 job    2 done  2 free
         0                  3                3              1                           0 job    1 done  3 free
         0                  3                0              1                           0 job    0 done  3 free
-
      */
 
     // Check if there is space in the job queue
@@ -97,11 +96,11 @@ public class xmlBluePrintHolder {
         }
     };
 
-    // pull the doned job out of queue
+    // pull the done job out of queue
     Object pullJob() {
         if (0 != doneInQue()) {
             Object tokenFile = this.tokenFile[nextPull];
-            // StoreLoad barrier: ensure element writes visible before nextPush update
+            // StoreLoad barrier: ensure element reads visible before nextPull update
             VarHandle.fullFence();
             nextPull = (nextPull + 1) & jobQueMask;
             LockSupport.unpark(myThread);
@@ -113,8 +112,17 @@ public class xmlBluePrintHolder {
 
     // Get job from job queue
     boolean nextJob() {
+        // Emit root close event if the previous job did not see a root closing tag.
+        // This guarantees that rootHandler receives EV_CLOSE_TAG for every job,
+        // even when the root open handler returned false or an error occurred before
+        // reaching the actual </root>.
+        if (!rootClosed && bluePrint.rootHandler != null) {
+            bluePrint.rootHandler.call(rootToken, this,
+                    xmlBluePrint.EV_CLOSE_TAG, 0, 0, 0, 0);
+        }        
+        rootClosed = true;
+
         if (0!=jobsInQue() && !bluePrint.forceShutdown) {
-            boolean wasRootClosed = rootClosed;
             ready2down = 0;
             charset = java.nio.charset.StandardCharsets.UTF_8;
             fHeaderCharset = false;
@@ -137,14 +145,6 @@ public class xmlBluePrintHolder {
             predictionActive = false;
             predictionValid = true;
 
-            // Emit root close event if the previous job did not see a root closing tag.
-            // This guarantees that rootHandler receives EV_CLOSE_TAG for every job,
-            // even when the root open handler returned false or an error occurred before
-            // reaching the actual </root>.
-            if (!wasRootClosed && rootHandler != null) {
-                rootHandler.call(rootToken, this,
-                        bluePrint.EV_CLOSE_TAG, 0, 0, 0, 0);
-            }
             rootClosed = false;  // Reset root closed flag for new job
 
             inprogress = (inprogress + 1) & jobQueMask;
@@ -154,7 +154,7 @@ public class xmlBluePrintHolder {
             ready2down = 1;
             return false;
         }
-    }
+    };
 
     xmlBluePrintHolder(int Nof2Power) {
         // Ensure exponent at least 2 (queue size >= 4)
@@ -196,7 +196,7 @@ public class xmlBluePrintHolder {
     int skipDepth = 0;  // nesting depth inside that unregistered branch
 
     int tagName = 0, tagNameEnd = 0; // tagName of current tag
-    int attrName = 0, attrEnd = 0; // last attribute name  
+    int attrName = 0, attrEnd = 0; // last attribute name
     int value = 0, valEnd = 0; // last value or innerText
 
     long hRootName = 0; // need for identify end of xml
@@ -211,7 +211,7 @@ public class xmlBluePrintHolder {
     long[] logDistances = new long[MAX_LOG_TARGETS];
     long[] logHashes = new long[MAX_LOG_TARGETS];
     int logSize = 0;
-    int rootOffset = -1;       // byte offset of '<root'
+    int rootOffset = -1;       // byte offset of '<root>'
     int lastTargetOffset = -1; // byte offset of last target's '<'
 
     // Prediction state
@@ -221,15 +221,15 @@ public class xmlBluePrintHolder {
     boolean predictionValid = true;
 
 
-    /* -- CONSTRUCTION RELATE -- */    
+    /* -- CONSTRUCTION RELATE -- */
     xmlBluePrint bluePrint = null;
     xmlBluePrintNode currentNode = null; // current brach
     Thread myThread = null; volatile int threadNo = -1;
     boolean ready2down = 1;
     boolean rootClosed = false;  // Track if root close tag was processed
-    
-    private int jobQueSize;
-    private int jobQueMask;
+
+    private int jobQueSize = 4;
+    private int jobQueMask = 3;
 
     /* -- Ring Type Job Queue size 2^N -- */
     volatile Object[] tokenFile;
