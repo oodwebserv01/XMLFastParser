@@ -65,7 +65,7 @@
         - พาร์ดาต้า หรือ "MainLoop" ทำหน้าที่ิ่านข้อมูลจากไฟล์ xml และเขียน entityFile ทั้งหลาย
         - ชัดดาวน์ หรือ "ClosingJob" คืนทรัพยากรณ์และเปลี่ยนชื่อ (ทุกไฟล์)[entityName]_pending.txt เป็น [entityName]_YYYYMMDDHHmmss.txt
     
-    ภาพรวม
+    ภาพรวม /*-- SUDO CODE from here --*/
 
         // เฟส พาร์ดาต้า 
         void MainLoop() {
@@ -166,24 +166,24 @@
                         tokenColumn.inner = tokenEntity.totalColumn
                         tokenEntity.totalColumn++
 
-                    ถ้า Line == "-"<path>@<attr>
+                    if ( Line == "-"<path>@<attr> ) {
                         trim <path>
                         idColumn = xmlFastParser.hash(<path>)
                         trim <attr>
                         idAttr = xmlFastParser.hash(<attr>)
-                        if null == tokenColumn = tokenEntity.AllTokebColumn.get(idColumn)
+                        if ( null == tokenColumn = tokenEntity.AllTokebColumn.get(idColumn) ) {
                             new tokenColumn
                             tokenEntity.AllTokebColumn.add( idColumn, tokenColumn )
                             tokenColumn.entity = tokenEntity
                             tokenColumn.path = <path>
                             tokenColumn.inner  = -1
                             tokenColumn.AllAttr = new HashMap< Long, int>
-                            
-                        if null == columh = tokenColumn.AllAttr.get(idAttr)
+                        }
+                        if null == columh = tokenColumn.AllAttr.get(idAttr) {
                             tokenColumn.AllAttr.add( idAttr, tokenEntity.totalColumn )
-                           
+                        }   
                         tokenEntity.totalColumn++
-
+                    }
                     ถ้า Line == "entity":<path>    
                         tokenEntity.path = <path>
 
@@ -206,6 +206,34 @@
                         tokenEntity.fileName = nameEntity
                         tokenEntity.totalColumn = 0
                         tokenEntity.AllTokebColumn = new HashMap< Long, Object>
+
+            /*
+                HD_Root ถูกปลุกเมื่อเริ่มต้น xml ใหม่ และเมื่อสิ้นสุดxml ,ทำหน้าที่แทน entity สำหรับข้อมูลที่มีเพียง 1 row/xml
+
+                
+                HD_Error ถูกปลุกเมื่อพบความผิดพลาดที่ร้ายแรงไม่สามารถผ่อนปรนได้ ไม่ว่าจะ return true หรือ false พารืเซอร์ก็จะเริ่มงานถัดไปทันที
+
+
+                HD_Entity ถูกปลุกเมื่อพบแท็กตามพาทที่ลงทะเบียนไว้ เป็นสัญาณว่า เริ่ม/สิ้นสุด ข้อมูล 1 row
+            
+                
+                HD_Column ถูกปลุกเมื่อพบแท็กตามพาทที่ลงทะเบียนไว้ เพื่อให้ผู้ใช้ เก็บ/ประมวลผล ข้อมูลที่ต้องการ
+
+                
+
+            */                        
+
+            // ลงทะเบียน xmlStructure
+                parser.rootRegist(HD_Root ,AllTokenEntity);
+                parser.errorRegist(HD_Error ,AllTokenEntity);
+                forEach tokenEntity in AllTokenEntity {
+                    if ( 1 <= tokenEntity.path.length ) {
+                        parser.regist(tokenEntity.path ,HD_Entity ,tokenEntity);
+                    }
+                    forEach tokenColumn in tokenEntity.AllTokebColumn {
+                        parser.regist(tokenEntity.path ,HD_Column ,tokenColumn);
+                    }
+                }            
 
             // สร้าง SourceHandler
                 this.source = new SourceHandler( pathSource )
