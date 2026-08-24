@@ -122,8 +122,12 @@ Usage Instructions
 
    private int Nof2Power = 2;
    // Set exponent N for holder queue size: size = 2^N (minimum N=1 => size=2)
-   public void setQueSize(int Nof2Power) {
+   public void setPipeLineDeep(int Nof2Power) {
       this.Nof2Power = Nof2Power;
+   }
+
+   public int getPipeLineTotalSlot() {
+      return threadCount * (( 1 << Nof2Power )-1); 
    }
 
    /**
