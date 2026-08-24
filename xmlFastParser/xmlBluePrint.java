@@ -430,7 +430,6 @@ public boolean run(){
 
                   // Get next job from holder's queue (advances cp, resets parse state)
                   if (!holder.nextJob()) {
-                System.out.println("DEBUG: Worker thread " + holder.threadNo + " jobLength=" + holder.jobLength[holder.cp] + ", initial pointer=" + holder.pointer);
                      // No job available, wait
                      while (!shuttingdown && (holder.cp == holder.pp)) LockSupport.parkNanos(5_000_000L);
                      continue;
@@ -472,7 +471,6 @@ public boolean run(){
 
                      // Normal FSM
                      int idx = holder.jobStart[holder.cp][holder.pointer] & 0xFF;
-                     System.out.println("INVOKING CALLBACK: state=" + holder.xmlState + ", idx=" + idx + ", handler=" + TOC[holder.xmlState][idx].getClass().getName());
                      TOC[holder.xmlState][idx]
                         .call(holder);
                   }
@@ -1307,7 +1305,6 @@ public boolean run(){
          holder.attrEnd = holder.pointer;
 
          // callback to user
-         System.out.println("INVOKING HANDLER (EV_ATTR): " + holder.currentNode.handler.getClass().getName());
          if (!holder.currentNode.handler.call(holder.currentNode.idToken, holder, EV_ATTR, holder.attrName, holder.attrEnd, 0, 0)){
             HD_NEXT_XML(holder);
          }
@@ -1419,7 +1416,6 @@ public boolean run(){
 
          if (holder.attrEnd > holder.attrName) {
             // callback to user
-         System.out.println("INVOKING HANDLER (EV_ATTR): " + holder.currentNode.handler.getClass().getName());
             if (! holder.currentNode.handler.call(holder.currentNode.idToken, holder, EV_ATTR, holder.attrName, holder.attrEnd, holder.value, holder.valEnd)){
                HD_NEXT_XML(holder);
                return;
@@ -1457,7 +1453,6 @@ public boolean run(){
       @Override
       public void call(xmlBluePrintHolder holder) {
          holder.valEnd = holder.pointer++;
-         System.out.println("INVOKING HANDLER (EV_INNER_TEXT): " + holder.currentNode.handler.getClass().getName());
          if (! holder.currentNode.handler.call(holder.currentNode.idToken, holder, EV_INNER_TEXT, 0, 0, holder.value, holder.valEnd)) {
             HD_NEXT_XML(holder);
             return;

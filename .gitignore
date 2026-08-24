@@ -9,3 +9,5 @@
 !*.java
 !*.html
 !GOAL.md
+!.gitignore
+

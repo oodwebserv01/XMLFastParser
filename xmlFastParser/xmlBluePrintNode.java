@@ -54,7 +54,6 @@ public class xmlBluePrintNode {
         this.parent = parent;
         this.tagHash = tagHash;
         this.handler = handler;
-        System.out.println("SET HANDLER: " + handler.getClass().getName() + ", idToken=" + idToken);
         this.idToken = idToken;
         this.isTarget = isTarget;
         this.isChildOfTarget = isChildOfTarget;
