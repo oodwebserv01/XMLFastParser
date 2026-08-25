@@ -90,6 +90,17 @@
                         while (null == xmlToken = parser.pullJob() ) LockSupport.parkNanos(500_000L);
                         this.xmlReturn++;
 
+                    // flush data of each entity to designed files
+                        if (null != xmlToken.msgError) {
+                            errorLogWriter.println(xmlToken.msgError);
+                        } else {
+                            foreach key to buff in xmlToken.buffOP {
+                                allEntityOutput.get(key).println(buff.toString());
+                            }
+                        }
+                        xmlToken.msgError = null;
+                        allEntityOutput.clear();
+
                     //ส่ง doneXmlPackage ให้ SourceHandler.closeXml 
                         source.closeXml(xmlToken.xml);
 
@@ -103,8 +114,24 @@
 
             // เฟสย่อย เคลียร์ไปปไลน์
                 ลูปเมือ จำนวนที่PULL < จำนวนที่PUSH
-                    รอ รับ xmlToken<doneXmlPackage> มาจาก xmlFastParser.pullJob หลับครั้งละ 0.1 ms ระหว่างรอ
-                    ส่ง doneXmlPackage ให้ SourceHandler.closeXml 
+                    // รอ รับ xmlToken<doneXmlPackage> มาจาก xmlFastParser.pullJob หลับครั้งละ 0.5 ms ระหว่างรอ
+                        while (null == xmlToken = parser.pullJob() ) LockSupport.parkNanos(500_000L);
+                        this.xmlReturn++;
+
+                    // flush data of each entity to designed files
+                        if (null != xmlToken.msgError) {
+                            errorLogWriter.println(xmlToken.msgError);
+                        } else {
+                            foreach key to buff in xmlToken.buffOP {
+                                allEntityOutput.get(key).println(buff.toString());
+                            }
+                        }
+                        xmlToken.msgError = null;
+                        allEntityOutput.clear();
+
+
+                    //ส่ง doneXmlPackage ให้ SourceHandler.closeXml 
+                        source.closeXml(xmlToken.xml);
         }
 
         // เฟส เตรียมตัว 
@@ -137,95 +164,285 @@
                 ถ้า args พบ "-d" เปลี่ยนค่า pathDest
 
             /*
+                โครงสร้าง TokenEntity
+                    HashMap< Long, Object > AllTokebColumn; 
+                    String fileName; // ชื่อไฟล์ Output ของ entity  
+                    int totalColumn; // จำนวนคอลัมน์ 
+                    HashMap< Long, Object > AllTokebColumn; // tokebColumn ทั้งหมดของ entity
+                    boolean isEmpty;
+
+                โครงสร้าง TokenColumn
+                    TokenEntity entity; // TokenEntity 
+                    String path; // xmlPath
+                    int inner; // col_index of innerText
+                    HashMap< Long, Int > AllAttr; // Map of col_index for each Attr
+
+            */  
+
+            // Parse .BP
+                HashMap< Long, Object > AllTokenEntity
+                TokenEntity tokenEntity = null;
+                ลูป (true) {
+                    ลูป ( null != Line = อ่านบรรทัดจาก(.bp) )  {
+                        trim( Line )
+                        ถ้า Line == "-"<path>#
+                            trim <path>
+                            idColumn = xmlBluePrint.hash(<path>)
+                            if null == tokenColumn = tokenEntity.AllTokebColumn.get(idColumn)
+                                new tokenColumn
+                                tokenEntity.AllTokebColumn.add( idColumn, tokenColumn )
+                                tokenColumn.entity = tokenEntity
+                                tokenColumn.path = <path>
+                                tokenColumn.inner  = -1
+                                tokenColumn.AllAttr = new HashMap< Long, int>
+                                
+                            tokenColumn.inner = tokenEntity.totalColumn
+                            tokenEntity.totalColumn++
+
+                        if ( Line == "-"<path>@<attr> ) {
+                            trim <path>
+                            idColumn = xmlBluePrint.hash(<path>)
+                            trim <attr>
+                            idAttr = xmlBluePrint.hash(<attr>)
+                            if ( null == tokenColumn = tokenEntity.AllTokebColumn.get(idColumn) ) {
+                                new tokenColumn
+                                tokenEntity.AllTokebColumn.add( idColumn, tokenColumn )
+                                tokenColumn.entity = tokenEntity
+                                tokenColumn.path = <path>
+                                tokenColumn.inner  = -1
+                                tokenColumn.AllAttr = new HashMap< Long, int>
+                            }
+                            if null == columh = tokenColumn.AllAttr.get(idAttr) {
+                                tokenColumn.AllAttr.add( idAttr, tokenEntity.totalColumn )
+                            }   
+                            tokenEntity.totalColumn++
+                        }
+                        ถ้า Line == "entity":<path>    
+                            tokenEntity.path = <path>
+
+                        ถ้า Line == "file":<fileName> break;
+                    }
+                    ถ้า null != tokenEntity {
+                        tokenEntity.Factory = new StringBuffer [numThreads] [tokenEntity.totalColumn]
+                        ลูป i = numThreads-1; i>=0; i--  {
+                            ลูป j = tokenEntity.totalColumn-1; i>=0; i--  {
+                                tokenEntity.Factory  [i] [j] = new StringBuffer
+                            }
+                        }
+                        tokenEntity.Stock = new StringBuffer [numThreads] 
+                        ลูป i = numThreads-1; i>=0; i--  {
+                            tokenEntity.Stock [i] = new StringBuffer
+                        }
+                    }
+                    if (null != Line) {
+                        trim <fileName> 
+                        nameEntity = <fileName>
+                        idEntity = xmlBluePrint.hash(nameEntity)
+                        tokenEntity = new TokenEntity
+                        AllTokenEntity.add( idEntity, tokenEntity )
+                        tokenEntity.fileName = nameEntity
+                        tokenEntity.totalColumn = 0
+                        tokenEntity.AllTokebColumn = new HashMap< Long, Object>
+                        tokenEntity.isEmpty = true;
+                        cotinue;
+                    } 
+                    break;
+                }
+
+            /*
                 โครงสร้าง xmlToken
-                    XmlPackage xml
-                    String buffOP
+                    XmlPackage xml;
+                    HashMap< Long ,String > buffOP; // buffOP[allEntity]
+                    String msgError;
             */    
 
             // Prepare AllXmlToken     
                 totalSizePipeLine = parser.getPipeLineTotalSlot();
                 AllXmlToken = new xmlToken [ totalSizePipeLine ]
-                ลูป i = totalSizePipeLine-1; i>=0; i--  
+                ลูป (i = totalSizePipeLine-1; i>=0; i--)  {
                     AllXmlToken[ i ] = new xmlToken
+                }
 
-            // Parse .BP
-                HashMap< Long, Object > AllTokenEntity
-                ลูป ทุก Line จาก .bp 
-                    trim( Line )
-                    ถ้า Line == "-"<path>#
-                        trim <path>
-                        idColumn = xmlFastParser.hash(<path>)
-                        if null == tokenColumn = tokenEntity.AllTokebColumn.get(idColumn)
-                            new tokenColumn
-                            tokenEntity.AllTokebColumn.add( idColumn, tokenColumn )
-                            tokenColumn.entity = tokenEntity
-                            tokenColumn.path = <path>
-                            tokenColumn.inner  = -1
-                            tokenColumn.AllAttr = new HashMap< Long, int>
-                            
-                        tokenColumn.inner = tokenEntity.totalColumn
-                        tokenEntity.totalColumn++
+            /*
+                โครงสร้าง tokenRoot
+                    thread; -- Thread.currentThread
+                    AllTokenEntity; -- AllTokenEntity
 
-                    if ( Line == "-"<path>@<attr> ) {
-                        trim <path>
-                        idColumn = xmlFastParser.hash(<path>)
-                        trim <attr>
-                        idAttr = xmlFastParser.hash(<attr>)
-                        if ( null == tokenColumn = tokenEntity.AllTokebColumn.get(idColumn) ) {
-                            new tokenColumn
-                            tokenEntity.AllTokebColumn.add( idColumn, tokenColumn )
-                            tokenColumn.entity = tokenEntity
-                            tokenColumn.path = <path>
-                            tokenColumn.inner  = -1
-                            tokenColumn.AllAttr = new HashMap< Long, int>
-                        }
-                        if null == columh = tokenColumn.AllAttr.get(idAttr) {
-                            tokenColumn.AllAttr.add( idAttr, tokenEntity.totalColumn )
-                        }   
-                        tokenEntity.totalColumn++
-                    }
-                    ถ้า Line == "entity":<path>    
-                        tokenEntity.path = <path>
-
-                    ถ้า Line == "file":<fileName>
-                        ถ้า null != tokenEntity
-                            tokenEntity.Factory = new StringBuffer [numThreads] [tokenEntity.totalColumn]
-                            ลูป i = numThreads-1; i>=0; i--  
-                                ลูป j = tokenEntity.totalColumn-1; i>=0; i--  
-                                    tokenEntity.Factory  [i] [j] = new StringBuffer
-
-                            tokenEntity.Stock = new StringBuffer [numThreads] 
-                            ลูป i = numThreads-1; i>=0; i--  
-                                tokenEntity.Stock [i] = new StringBuffer
-
-                        trim <fileName> 
-                        nameEntity = <fileName>
-                        idEntity = xmlFastParser.hash(nameEntity)
-                        new tokenEntity
-                        AllTokenEntity.add( idEntity, tokenEntity )
-                        tokenEntity.fileName = nameEntity
-                        tokenEntity.totalColumn = 0
-                        tokenEntity.AllTokebColumn = new HashMap< Long, Object>
+            */
+            // สร้าง tokenRoot
+                tokenRoot = new tokenRoot
+                tokenRoot.thread = Thread.currentThread();
+                tokenRoot.AllTokenEntity = AllTokenEntity;
 
             /*
                 HD_Root ถูกปลุกเมื่อเริ่มต้น xml ใหม่ และเมื่อสิ้นสุดxml ,ทำหน้าที่แทน entity สำหรับข้อมูลที่มีเพียง 1 row/xml
+                static final xmlBluePrintHolder HD_Root = new xmlBluePrintHolder() {
+                    @Override
+                    public boolean call(Object idToken, xmlBluePrintHolder holder, int event, int nameBegin, int nameEnd, int valueBegin, int valueEnd) {
+                        rootToken = idToken
+                        if ( xmlBluePrint.EV_CLOSE_TAG = event ) {
+
+                            // 1. ดึงข้อมูล fileName จาก holder
+                            xmlToken = holder.getTokenFile();
+                            fileName = xmlToken.xml.name;
+
+                            foreach key to tokenEntity in tokenRoot.AllTokenEntity { // 2. รับ tokenEntity ทีละตัว
+                                if (!tokenEntity.isEmpty) {
+                                
+                                    // 3. สร้างสตริงข้อมูลครบถ้วน
+                                    StringBuilder row = new StringBuilder();
+                                    row.append("\"").append(fileName).append("\"");
+                                    
+                                    // 4. เพิ่มคอลัมน์ข้อมูลจาก rowBuffer
+                                    String[] rowBuffer = tokenEntity.Factory[holder.getThreadNO]; // ดึง buffer ตามเธรด
+                                    for (int i = 0; i < rowBuffer.length; i++) {
+                                        row.append(",\"").append(rowBuffer[i]).append("\"");
+                                        rowBuffer[i].setLength(0); //Clear buffer for next row
+                                    }
+                                    
+                                    // 5. เก็บลง tokenEntity.Stock (สำหรับเธรดนี้)
+                                    tokenEntity.Stock[holder.getThreadNO].append(row.toString()).append("\n");
+
+                                    tokenEntity.isEmpty = true;
+
+                                }
+
+                                // 6. ฝากข้อมูลส่งออก ไปกับ xmlToken , xmlToken กำลังจะออกไปจาก parser
+                                xmlToken.buffOP.add( key, tokenEntity.Stock[holder.getThreadNO].toString() );
+
+                                // 7. เคลียร์ tokenEntity.Stock[holder.getThreadNO]
+                                tokenEntity.Stock[holder.getThreadNO].setLength(0);
+                            }
+                        } else if ( xmlBluePrint.EV_OPEN_TAG = event ) {
+                            // ปลุกเมนเธรด เมื่อ parser เริ่มงานใหม่ ,เพราเมนเธรดอาจจะหลับเพื่อรอ pullJob อยู่  
+                            LockSupport.unpark(rootToken.thread);
+                        }
+                        return true;                        
+                    }
+                }
 
                 
-                HD_Error ถูกปลุกเมื่อพบความผิดพลาดที่ร้ายแรงไม่สามารถผ่อนปรนได้ ไม่ว่าจะ return true หรือ false พารืเซอร์ก็จะเริ่มงานถัดไปทันที
+                // HD_Error ถูกปลุกเมื่อพบความผิดพลาดที่ร้ายแรงไม่สามารถผ่อนปรนได้ ไม่ว่าจะ return true หรือ false พารืเซอร์ก็จะเริ่มงานถัดไปทันที
+                static final xmlBluePrintHolder HD_Error = new xmlBluePrintHolder() {
+                    @Override
+                    public boolean call(Object idToken, xmlBluePrintHolder holder, int event, int nameBegin, int nameEnd, int valueBegin, int valueEnd) {
+                        xmlToken = holder.getTokenFile();
+                        fileName = xmlToken.xml.name;    
+                        String err;
+                        select 
+                            case xmlBluePrint.EV_UNKNOWN_ERROR 
+                                err = "UNKNOWN_ERROR";
+                            case xmlBluePrint.EV_EOF_IN_ROOT 
+                                err = "EOF_IN_ROOT";
+                            case xmlBluePrint.EV_EXPECTED_END
+                                err = "EXPECTED_END";
+                            case xmlBluePrint.EV_END_NE_BEGIN 
+                                err = "END_NE_BEGIN";
+                        end
+
+                        xmlToken.msgError = err + " : byte NO = " + holder.pointer  + " : file = " + fileName + <YYYYMMDDHHmmss>; // วันเวลาปัจจุบัน              
+
+                        foreach key to tokenEntity in tokenRoot.AllTokenEntity { // รับ tokenEntity ทีละตัว
+                            if (!tokenEntity.isEmpty) {
+                                
+                                // ล้าง ข้อมูลจาก rowBuffer
+                                String[] rowBuffer = tokenEntity.Factory[holder.getThreadNO]; // ดึง buffer ตามเธรด
+                                for (int i = 0; i < rowBuffer.length; i++) {
+                                    rowBuffer[i].setLength(0); //Clear buffer for next row
+                                }
+                                
+                                // ล้าง tokenEntity.Stock (สำหรับเธรดนี้)
+                                tokenEntity.Stock[holder.getThreadNO].setLength(0);
+
+                                tokenEntity.isEmpty = true;
+
+                            }
+
+                        return false;
+                    }
+                }                
 
 
                 HD_Entity ถูกปลุกเมื่อพบแท็กตามพาทที่ลงทะเบียนไว้ เป็นสัญาณว่า เริ่ม/สิ้นสุด ข้อมูล 1 row
-            
+                // HD_Entity implementation (inferred)
+                static final xmlBluePrintHolder HD_Entity = new xmlBluePrintHolder() {
+                    @Override
+                    public boolean call(Object idToken, xmlBluePrintHolder holder, int event, int nameBegin, int nameEnd, int valueBegin, int valueEnd) {
+                        if ( xmlBluePrint.EV_CLOSE_TAG = event ) {
+                            tokenEntity = (TokenEntity) idToken;  // 1. รับ tokenEntity ที่ฝากไว้
+                            
+                            if (!tokenEntity.isEmpty) {
+                                // 2. ดึงข้อมูล fileName จาก holder
+                                xmlToken = holder.getTokenFile();
+                                fileName = xmlToken.xml.name;
+                                
+                                // 3. สร้างสตริงข้อมูลครบถ้วน
+                                StringBuilder row = new StringBuilder();
+                                row.append("\"").append(fileName).append("\"");
+                                
+                                // 4. เพิ่มคอลัมน์ข้อมูลจาก rowBuffer
+                                String[] rowBuffer = tokenEntity.Factory[holder.getThreadNO]; // ดึง buffer ตามเธรด
+                                for (int i = 0; i < rowBuffer.length; i++) {
+                                    row.append(",\"").append(rowBuffer[i]).append("\"");
+                                    rowBuffer[i].setLength(0); //Clear buffer for next row
+                                }
+                                
+                                // 5. เก็บลง tokenEntity.Stock (สำหรับเธรดนี้)
+                                tokenEntity.Stock[holder.getThreadNO].append(row.toString()).append("\n");
+
+                                tokenEntity.isEmpty = true;
+                            }
+                        }
+                        return true;
+                    }
+                };                  
                 
                 HD_Column ถูกปลุกเมื่อพบแท็กตามพาทที่ลงทะเบียนไว้ เพื่อให้ผู้ใช้ เก็บ/ประมวลผล ข้อมูลที่ต้องการ
+                static final xmlBluePrintHolder HD_Column = new xmlBluePrintHolder() {
+                    @Override
+                    public boolean call(Object idToken, xmlBluePrintHolder holder, int event, int nameBegin, int nameEnd, int valueBegin, int valueEnd) {
+                        tokenColumn = idToken
+                        factory = tokenColumn.tokenEntity.Factory 
+                        rowBuffer = factory[holder.getThreadNO] 
+                        if ( xmlBluePrint.EV_INNER_TEXT = event ) {
+                            rowBuffer[tokenColumn.inner].add( String(holder.getByteBuffer() ,valueBegin ,valueEnd-valueBegin) )
+                            tokenColumn.entity.isEmpty = true;
+                        } else if ( xmlBluePrint.EV_ATTR = event ) {
+                            idAttr = xmlBluPrint.hash(holder.getByteBuffer() ,nameBegin ,nameEnd )
+                            rowBuffer[tokenColumn.AllAttr.get(idAttr)].add( String(holder.getByteBuffer() ,valueBegin ,valueEnd-valueBegin) )
+                            tokenColumn.entity.isEmpty = true;
+                        }
+                        return true;
+                    }
+                }
+            */    
 
-                
+            // เตรียม allEntityOutput       
 
-            */                        
+                // 1. สร้าง Output Writer สำหแต่ละ Entity
+                //    - ใช้ tokenEntity.fileName เป็นชื่อไฟล์พื้นฐาน
+                //    - เขียนลงไฟล์ชื่อ EntityName_ThreadNo_YYYYMMDDHHmmss.txt
+
+                HashMap< Long ,PrintWriter > allEntityOutput = new HashMap();
+  
+                foreach key to tokenEntity in AllTokenEntity {
+                    // สร้าง Writer สำห Entity นี้
+                    // เขียนลงไฟล์ชื่อ: tokenEntity.fileName + "_pending.txt" ก่อน
+                    outputWriter = new PrintWriter(new FileWriter(tokenEntity.fileName + "_pending.txt"));
+                    
+                    // เก็บทุก outputWriter ไว้ใน allEntityOutput
+                    allEntityOutput.add( key ,outputWriter );
+                }
+
+            // เตรียม ErrorLog_Writer
+                // 1. สร้าง ErrorLogWriter สำหบันทึกข้อผิดพลาด
+                //    - เขียนลงไฟล์ชื่อ "xml2txt.log" (เหมือนที่ SourceHandler สร้างไว้แล้ว)
+                //    - บันทึกข้อความ error ที่เกิดขึ้นระหว่างการประมวลผล
+                errorLogWriter = new PrintWriter(new FileWriter("xml2txt.err", true)); // true = append mode
 
             // ลงทะเบียน xmlStructure
-                parser.rootRegist(HD_Root ,AllTokenEntity);
-                parser.errorRegist(HD_Error ,AllTokenEntity);
+                parser.rootRegist(HD_Root ,tokenRoot);
+                parser.errorRegist(HD_Error ,tokenRoot);
                 forEach tokenEntity in AllTokenEntity {
                     if ( 1 <= tokenEntity.path.length ) {
                         parser.regist(tokenEntity.path ,HD_Entity ,tokenEntity);
@@ -260,8 +477,8 @@
                             
 
                         เมื่อสร้าง SourceHandler(<โฟลเดอร์>) {
+                            this.folderReader = เปิด <โฟลเดอร์> 
                             ที่ <โฟลเดอร์> สร้าง txtFile ชื่อ xml2txt.log 
-                            AllXml = new HashMap<Long, Object>
                             AllZip = new HashMap<Long, Object>
                         }
 
@@ -283,9 +500,10 @@
                                         zipHandler.canRead = false
                                         continue
 
-                                หา .zip หรือ .xml จาก <โฟลเดอร์> ที่ยังไม่มีใน xml2txt.log
+                                อ่านชื่อไฟล์ถัดไปจาก this.folderReader จนกว่าจะพบ .zip หรือ .xml จาก  
 
                                     ถ้าหมดแล้ว 
+                                        ปิด this.folderReader
                                         return null
 
                                     ถ้า .xml 
@@ -293,8 +511,7 @@
                                         if null != buff = อ่านไฟล์(<fileName>)
                                             xml.byteBuffer = buff
                                             xml.size = buff.length
-                                            xml.idFile = xmlFastParser.hash(<fileName>)
-                                            AllXml.add(idFile, <fileName>) 
+                                            xml.idFile = xmlBluePrint.hash(<fileName>)
                                             xml.name = <fileName>
                                             เขียน xml2txt.log
                                                 "<fileName> Open <YYYYMMDDHHmmss วันเวลาปัจจุบัน>"
@@ -308,7 +525,7 @@
                                                     "<fileName> UnOpenAble <YYYYMMDDHHmmss วันเวลาปัจจุบัน>"
                                                 continue
                                             ถ้าเปิดได้ // สร้าง <ตัวอ่านไฟล์.zip ชอง่ java> และเปิดได้สำเร้จ 
-                                                idFile = xmlFastParser.hash(<fileName>)
+                                                idFile = xmlBluePrint.hash(<fileName>)
                                                 new zipHandler    
                                                 AllZip.add( idFile, zipHandler )
                                                 zipHandler.zipReader = <ตัวอ่านไฟล์.zip ชอง่ java>
@@ -322,12 +539,9 @@
 
                         source.closeXml(XmlPackage) {
 
-                            // handle closing logic of xmlFile
-                                String fName;
-                                if (null != fname = AllXml.get(XmlPackage.name) ) {
-                                    เขียน xml2txt.log
-                                        "<fileName> Close <YYYYMMDDHHmmss วันเวลาปัจจุบัน>"
-                                }
+                            // handle closing logic of xmlFile (ใช้ xml.name โดยตรง ครอบคลุมทั้งไฟล์ตรงและใน ZIP)
+                                เขียน xml2txt.log
+                                    "<XmlPackage.name> Close <YYYYMMDDHHmmss วันเวลาปัจจุบัน>"
                             
                             // handle closing logic of zipfile
                                 if (null != zipHandler = AllZip.get(XmlPackage.idFile)) {
@@ -339,7 +553,7 @@
                                         zipHandler.zipReader = null;
 
                                         // ลบ zipHandler ออกจาก AllZip
-                                            AllZip.remove(xmlFastParser.hash(XmlPackage.idFile));
+                                            AllZip.remove(xmlBluePrint.hash(XmlPackage.idFile));
 
                                         // ลบ zipHandler ออกจาก memory
                                             zipHandler = null;
@@ -352,4 +566,29 @@
                                 }
                         }
                     */
+        }
+
+        // เฟส ชัดดาวน์ หรือ "ClosingJob" คืนทรัพยากรณ์และเปลี่ยนชื่อ (ทุกไฟล์)
+        void ClosingJob() {
+
+            // 1. ปิด FileWriter ของทุก Entity
+                foreach key to outputWriter in allEntityOutput {
+                    outputWriter.close();
+                }
+                allEntityOutput.clear();
+
+            // 2. เปลี่ยนชื่อไฟล์จาก _pending เป็น _YYYYMMDDHHmmss
+                foreach key to tokenEntity in AllTokenEntity {
+                    if (tokenEntity.fileName != null) {
+                        String oldFile = tokenEntity.fileName + "_pending.txt";
+                        String newFile = tokenEntity.fileName + "_" + new SimpleDateFormat("yyyyMMddHHmmss").format(new Date()) + ".txt";
+                        // โลจิกการเปลี่ยนชื่อไฟล์ (อาจใช้ Files.move หรือ Runtime.exec("mv ..."))
+                        // ข้ามขั้นตอนนี้ไปก่อน เนื่องจากขึ้นอยู่กับ Environment
+                    }
+                }
+
+            // 3. ปิดและบันทึก ErrorLog
+                errorLogWriter.close();
+
+            // สิ้นสุด ClosingJob
         }
