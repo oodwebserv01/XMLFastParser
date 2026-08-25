@@ -590,5 +590,9 @@
             // 3. ปิดและบันทึก ErrorLog
                 errorLogWriter.close();
 
+            // 4. shutdown parser 
+                parser.shutdown(false);    
+                parser = null;
+
             // สิ้นสุด ClosingJob
         }

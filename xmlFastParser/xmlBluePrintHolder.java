@@ -44,8 +44,8 @@ public class xmlBluePrintHolder {
     // Use static VarHandle.fullFence() method directly
 
     /*
-        nextPush    inprogress   nextPull    readyToDown
-        1                  0                1              0                           0 job    0 done  3 free   <imposible>
+        lastPush        inprogress         lastPull    readyToDown
+        0                  0                0              0                           0 job    0 done  3 free   <imposible>
         1                  0                1              1                           0 job    0 done  3 free   <start>
 
         2                  0                1              1                           1 job    0 done  2 free
