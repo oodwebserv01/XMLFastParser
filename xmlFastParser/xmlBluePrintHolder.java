@@ -82,13 +82,13 @@ public class xmlBluePrintHolder {
     // Add new job to job queue
     boolean pushJob(byte[] start, int length, Object tokenFile) {
         if (0 != jobQueSpace()) {
-            int _nextPush = (nextPush + 1) & jobQueMask;
+            int _nextPush = nextPush; // Use current nextPush as storage index
             this.tokenFile[_nextPush] = tokenFile;
             jobStart[_nextPush] = start;
             jobLength[_nextPush] = length;
             // StoreLoad barrier: ensure element writes visible before nextPush update
             VarHandle.fullFence();
-            nextPush = _nextPush;
+            nextPush = (nextPush + 1) & jobQueMask; // Advance for next push
             LockSupport.unpark(myThread);
             return true;
         } else {
@@ -98,7 +98,8 @@ public class xmlBluePrintHolder {
 
     // pull the done job out of queue
     Object pullJob() {
-        if (0 != doneInQue()) {
+        int done = doneInQue();
+        if (0 != done) {
             Object tokenFile = this.tokenFile[nextPull];
             // StoreLoad barrier: ensure element reads visible before nextPull update
             VarHandle.fullFence();

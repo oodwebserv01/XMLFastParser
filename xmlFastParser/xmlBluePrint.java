@@ -125,17 +125,20 @@ Usage Instructions
            byte[] segBytes = segment.getBytes();
            long tagHash = hash(segBytes, segBytes.length);
            
-           // Last segment = TARGET, others = path nodes
-           boolean isTarget = (i == segments.length - 1);
-           
+           // Last segment = TARGET (entity), first segment = TARGET (XML root element), others = path nodes
+           boolean isTarget = (i == segments.length - 1) || (i == 0);
+
            // CHILD_OF_TARGET if parent is a target
            boolean isChildOfTarget = current.isTarget;
-           
-           current = current.getOrCreateChild(tagHash, 
+
+           // Use HD_CLOSINGROOT for XML root element (first segment) to properly set rootClosed
+           CELL closingHandler = (i == 0) ? HD_CLOSINGROOT : HD_CLOSINGTAG;
+
+           current = current.getOrCreateChild(tagHash,
                                                isTarget ? handler : null,
                                                isTarget ? token : null,
                                                isTarget,
-                                               isChildOfTarget, HD_CLOSINGTAG);
+                                               isChildOfTarget, closingHandler);
        }
    };
 
@@ -168,11 +171,10 @@ Usage Instructions
          if (rootHandler == null) {
             return false;
          }
-         root.handler = rootHandler;
+         root.addHandler(rootHandler, rootToken);
          root.parent = root;
          root.isChildOfTarget = false;
          root.isTarget = false;
-         root.idToken = rootToken;
          // Default to 1 thread if not set
          if (threadCount <= 0) {
             threadCount = 1;
@@ -190,8 +192,7 @@ Usage Instructions
                holder.myThread = Thread.currentThread();
                holder.threadNo = holderIndex;
 
-               // wait until job come
-               while (!shuttingdown && !holder.nextJob()) LockSupport.parkNanos(5_000_000L);
+               // System.err.println("[WORKER-" + holderIndex + "] Thread started");
 
                while (!shuttingdown ) {
                   // Handle pause - park until resumed
@@ -200,9 +201,13 @@ Usage Instructions
                   // Get next job from holder's queue (advances cp, resets parse state)
                   if (!holder.nextJob()) {
                      // No job available, wait
-                     while (!shuttingdown && (holder.inprogress == holder.nextPush)) LockSupport.parkNanos(5_000_000L);
+                     // System.err.println("[WORKER-" + holderIndex + "] Waiting for job, nextPush=" + holder.nextPush + " inprogress=" + holder.inprogress);
+                     while (!shuttingdown && holder.jobsInQue() == 0) LockSupport.parkNanos(5_000_000L);
                      continue;
                   }
+                  // System.err.println("[WORKER-" + holderIndex + "] Got job, inprogress=" + holder.inprogress);
+                  // Handle pause - park until resumed
+                  while (!shuttingdown && paused) LockSupport.parkNanos(50_000_000L);
 
                   // Request prediction after first target or at root
                   // We'll trigger prediction when we have at least one target in log
@@ -210,48 +215,48 @@ Usage Instructions
                   holder.predictionValid = true;
 
                   // Process entire XML document
+                  // System.err.println("[WORKER-" + holder.threadNo + "] Start processing job, length=" + holder.jobLength[holder.inprogress] + " pointer=" + holder.pointer);
                   while (holder.pointer < holder.jobLength[holder.inprogress]) {
-                     // PREDICTIVE FAST-PATH: jump to predicted target positions
-                     // System.err.println("[LOOP] pointer=" + holder.pointer + " predictionActive=" + holder.predictionActive + " predictionValid=" + holder.predictionValid + " predictedIndex=" + holder.predictedIndex + " predictedLog=" + (holder.predictedLog!=null?holder.predictedLog.size:"null") + " logSize=" + holder.logSize);
-                     if (holder.predictionActive && holder.predictionValid
-                         && holder.predictedIndex < holder.predictedLog.size) {
-                        int nextPredictedOffset;
-                        if (holder.predictedIndex == 0 && holder.rootOffset >= 0) {
-                           nextPredictedOffset = holder.rootOffset + (int)holder.predictedLog.distances[0];
-                        } else if (holder.lastTargetOffset >= 0) {
-                           nextPredictedOffset = holder.lastTargetOffset + (int)holder.predictedLog.distances[holder.predictedIndex];
-                        } else {
-                           nextPredictedOffset = -1;
-                        }
-
-                        if (nextPredictedOffset > holder.pointer && nextPredictedOffset < holder.jobLength[holder.inprogress]) {
-                           // Save original pointer for potential rollback
-                           int originalPointer = holder.pointer;
-                           // Jump directly to predicted target start
-                           holder.pointer = nextPredictedOffset;
-                           // Peek: verify tag at predicted position
-                           if (verifyTagAtPointer(holder, holder.predictedLog.hashes[holder.predictedIndex])) {
-                              // System.err.println("[PREDICT] Jumped to " + holder.pointer + " predictedIndex=" + holder.predictedIndex + " hash=" + holder.predictedLog.hashes[holder.predictedIndex]);
-                              // SUCCESS: Tag verified at predicted position
-                              // Now we need to properly parse this tag and update tree state
-                              parseTagAtPointer(holder, holder.predictedLog.hashes[holder.predictedIndex]);
-                              holder.predictedIndex++;
-                              continue; // Skip FSM for jumped region
-                           } else {
-                              // Verification failed - restore pointer and disable prediction
-                              // System.err.println("[PREDICT] Verify failed at " + nextPredictedOffset + " restoring to " + originalPointer);
-                              holder.pointer = originalPointer;
-                              holder.predictionValid = false;
-                              holder.predictionActive = false;
-                           }
-                        }
-                     }
+                     // PREDICTIVE FAST-PATH: DISABLED for testing
+                     // if (holder.predictionActive && holder.predictionValid
+                     //     && holder.predictedIndex < holder.predictedLog.size) {
+                     //    int nextPredictedOffset;
+                     //    if (holder.predictedIndex == 0 && holder.rootOffset >= 0) {
+                     //       nextPredictedOffset = holder.rootOffset + (int)holder.predictedLog.distances[0];
+                     //    } else if (holder.lastTargetOffset >= 0) {
+                     //       nextPredictedOffset = holder.lastTargetOffset + (int)holder.predictedLog.distances[holder.predictedIndex];
+                     //    } else {
+                     //       nextPredictedOffset = -1;
+                     //    }
+                     //
+                     //    if (nextPredictedOffset > holder.pointer && nextPredictedOffset < holder.jobLength[holder.inprogress]) {
+                     //       // Save original pointer for potential rollback
+                     //       int originalPointer = holder.pointer;
+                     //       // Jump directly to predicted target start
+                     //       holder.pointer = nextPredictedOffset;
+                     //       // Peek: verify tag at predicted position
+                     //       if (verifyTagAtPointer(holder, holder.predictedLog.hashes[holder.predictedIndex])) {
+                     //          // System.err.println("[PREDICT] Jumped to " + holder.pointer + " predictedIndex=" + holder.predictedIndex + " hash=" + holder.predictedLog.hashes[holder.predictedIndex]);
+                     //          // SUCCESS: Tag verified at predicted position
+                     //          // Now we need to properly parse this tag and update tree state
+                     //          parseTagAtPointer(holder, holder.predictedLog.hashes[holder.predictedIndex]);
+                     //          holder.predictedIndex++;
+                     //          continue; // Skip FSM for jumped region
+                     //       } else {
+                     //          // Verification failed - restore pointer and disable prediction
+                     //          // System.err.println("[PREDICT] Verify failed at " + nextPredictedOffset + " restoring to " + originalPointer);
+                     //          holder.pointer = originalPointer;
+                     //          holder.predictionValid = false;
+                     //          holder.predictionActive = false;
+                     //       }
+                     //    }
+                     // }
 
                      // Normal FSM
                      int idx = holder.jobStart[holder.inprogress][holder.pointer] & 0xFF;
-                     if (holder.xmlState == 35 || holder.xmlState == 36 || holder.xmlState == 38 || holder.xmlState == 39 || holder.xmlState == 40) {
-                        System.err.println("[FSM] ptr=" + holder.pointer + " state=" + holder.xmlState + " char=" + (char)idx + " idx=" + idx + " logSize=" + holder.logSize + " predActive=" + holder.predictionActive + " predIdx=" + holder.predictedIndex + " predLog=" + (holder.predictedLog!=null?holder.predictedLog.size:"null"));
-                     }
+                     // if (holder.xmlState == 35 || holder.xmlState == 36 || holder.xmlState == 38 || holder.xmlState == 39 || holder.xmlState == 40) {
+                     //    System.err.println("[FSM] ptr=" + holder.pointer + " state=" + holder.xmlState + " char=" + (char)idx + " idx=" + idx + " logSize=" + holder.logSize + " predActive=" + holder.predictionActive + " predIdx=" + holder.predictedIndex + " predLog=" + (holder.predictedLog!=null?holder.predictedLog.size:"null"));
+                     // }
                      TOC[holder.xmlState][idx]
                         .call(holder);
                   }
@@ -286,26 +291,36 @@ Usage Instructions
    public boolean pushJob(byte[] start, int length, Object tokenFile) {
       for (int attempts = 0; attempts < threadCount; attempts++ ) {
          xmlBluePrintHolder holder = holders[nextPush];
+         // System.err.println("[PUSH] Attempt holder=" + nextPush + " threadCount=" + threadCount);
          nextPush = (nextPush + 1) % threadCount;
-         if (holder.pushJob(start, length, tokenFile))  return true;
+         if (holder.pushJob(start, length, tokenFile)) {
+            // System.err.println("[PUSH] Success holder=" + (nextPush - 1 + threadCount) % threadCount);
+            return true;
+         }
       }
       // all holders full
+      // System.err.println("[PUSH] All holders full");
       this.run();
       return false;
    };
 
-   volatile int nextPull = 0; // round-robin index for direct pullJob   
+   volatile int nextPull = 0; // round-robin index for direct pullJob
    // pull finished job from threads
    public Object pullJob() {
       Object tokenFile = null;
       xmlBluePrintHolder _holder = null;
       for  (int attempts = 0; attempts < threadCount; attempts++) {
          _holder = this.holders[nextPull];
+         // System.err.println("[PULL] Attempt holder=" + nextPull + " threadCount=" + threadCount);
          nextPull = (nextPull + 1) % threadCount;
-         if (null != (tokenFile = _holder.pullJob()))  return tokenFile;
+         if (null != (tokenFile = _holder.pullJob())) {
+            // System.err.println("[PULL] Success holder=" + (nextPull - 1 + threadCount) % threadCount);
+            return tokenFile;
+         }
       }
-      // there is no job done 
-      return null;   
+      // there is no job done
+      // System.err.println("[PULL] No job done");
+      return null;
    };
 
    // this function for checking status if Parser is ready to down;
@@ -1251,12 +1266,11 @@ Usage Instructions
       // If this is a target node, send OPEN_TAG callback
       if (holder.currentNode.isTarget) {
          holder.xmlState = S_TARGET_INTAG;
-         if (!holder.currentNode.handler.call(
-            holder.currentNode.idToken, holder,
-            EV_OPEN_TAG,
+         if (!holder.currentNode.callHandlers(
+            holder, EV_OPEN_TAG,
             holder.tagName, holder.tagNameEnd,
             0, 0)) {
-            // If handler returns false, skip to next XML
+            // If any handler returns false, skip to next XML
             HD_NEXT_XML(holder);
             holder.pointer = ptr;
             return;
@@ -1382,9 +1396,15 @@ Usage Instructions
    private static final CELL HD_CLOSINGROOT = new CELL() {
       @Override
       public void call(xmlBluePrintHolder holder) {
+         // System.err.println("[HD_CLOSINGROOT] Called! rootClosed will be set to true, pointer=" + holder.pointer);
          holder.rootClosed = true;  // Mark root as properly closed
-         holder.bluePrint.root.handler.call(holder.bluePrint.rootToken,holder,EV_CLOSE_TAG,0,0,0,0);
-         HD_NEXT_XML(holder);
+         holder.bluePrint.root.callHandlers(holder, EV_CLOSE_TAG, 0, 0, 0, 0);
+         // Do NOT call HD_NEXT_XML here - let the main loop finish naturally
+         // nextJob() will be called by the worker loop after this job completes
+         // Moving to parent (root) and setting state
+         holder.currentNode = holder.currentNode.parent; // root node
+         holder.xmlState = S_INNER;
+         holder.value = holder.pointer;
       }
    };   
 
@@ -1405,7 +1425,7 @@ Usage Instructions
          if (holder.currentNode.isTarget) {
             // Record close-tag position for distance log (from </target_A> to <target_B>)
             holder.lastTargetOffset = holder.pointer;
-            if (! holder.currentNode.handler.call(holder.currentNode.idToken,holder,EV_CLOSE_TAG,holder.tagName,holder.tagNameEnd,0,0)) {
+            if (!holder.currentNode.callHandlers(holder, EV_CLOSE_TAG, holder.tagName, holder.tagNameEnd, 0, 0)) {
                HD_NEXT_XML(holder);
                return ;
             }
@@ -1800,6 +1820,13 @@ Usage Instructions
          holder.currentNode = holder.bluePrint.root;
          holder.currentNode.tagHash = holder.hRootName; // Set root tagHash for close tag matching
 
+         // Traverse to XML root element node (first segment of registered paths)
+         // The registered paths start with the XML root element as first segment
+         xmlBluePrintNode rootElementNode = holder.currentNode.getChild(holder.hRootName);
+         if (rootElementNode != null) {
+            holder.currentNode = rootElementNode;
+         }
+
          // Initialize target distance log
          holder.rootOffset = holder.tagName; // byte offset of '<root>'
          holder.lastTargetOffset = -1;
@@ -1810,7 +1837,7 @@ Usage Instructions
          holder.predictionValid = true;
          holder.rootClosed = false; // Ensure root closed flag is cleared on opening root
 
-         System.err.println("[HD_ROOT_TAGNAME] rootOffset=" + holder.rootOffset + " hRootName=" + holder.hRootName);
+         // System.err.println("[HD_ROOT_TAGNAME] rootOffset=" + holder.rootOffset + " hRootName=" + holder.hRootName + " currentNode=" + holder.currentNode + " isTarget=" + (holder.currentNode!=null?holder.currentNode.isTarget:"null"));
 
          if (holder.bluePrint.rootHandler != null ) {
             if (! holder.bluePrint.rootHandler.call(holder.bluePrint.rootToken,holder,EV_OPEN_TAG,holder.tagName,holder.tagNameEnd,0,0)) {
@@ -1829,7 +1856,7 @@ Usage Instructions
       public void call(xmlBluePrintHolder holder) {
          holder.tagNameEnd = holder.pointer;
          long hTagName = hash(holder.jobStart[holder.inprogress], holder.tagName, holder.tagNameEnd);
-         System.err.println("[HD_TAGNAME] tagName=" + holder.tagName + "-" + holder.tagNameEnd + " hash=" + hTagName + " logSize=" + holder.logSize + " currentNode=" + holder.currentNode + " isTarget=" + (holder.currentNode!=null?holder.currentNode.isTarget:"null"));
+         // System.err.println("[HD_TAGNAME] tagName=" + holder.tagName + "-" + holder.tagNameEnd + " hash=" + hTagName + " logSize=" + holder.logSize + " currentNode=" + holder.currentNode + " isTarget=" + (holder.currentNode!=null?holder.currentNode.isTarget:"null"));
 
          // If we are currently skipping an unregistered  branch (skipDepth > 0)
          if (holder.skipDepth > 0) {
@@ -1838,9 +1865,19 @@ Usage Instructions
             return;
          }
 
-         // Record skipName and enter skip mode
+         // Record skipName and enter skip mode ONLY if not under a target node
+         // If currentNode is a target or child of target, we allow unregistered children
+         // to be processed (they may contain target descendants)
          if (!holder.currentNode.hasChild(hTagName)) {
-            holder.xmlState = S_UNREGIST_BRANCH;         
+            if (holder.currentNode.isTarget || holder.currentNode.isChildOfTarget) {
+               // Under a target path - process this tag but don't add to tree
+               // Create a temporary node for traversal
+               xmlBluePrintNode tempNode = new xmlBluePrintNode(holder.currentNode, hTagName, null, null, false, true, HD_CLOSINGTAG);
+               holder.currentNode = tempNode;
+               holder.xmlState = S_INTAG;
+               return;
+            }
+            holder.xmlState = S_UNREGIST_BRANCH;
             holder.skipName = hTagName;
             holder.skipDepth = 1;
             return;
@@ -1855,12 +1892,11 @@ Usage Instructions
          } 
 
          holder.xmlState = S_TARGET_INTAG;
-         if (!holder.currentNode.handler.call(
-            holder.currentNode.idToken, holder,
-            EV_OPEN_TAG,
+         if (!holder.currentNode.callHandlers(
+            holder, EV_OPEN_TAG,
             holder.tagName, holder.tagNameEnd,
             0, 0)) {
-            // If the handler returns false, skip to next XML
+            // If any handler returns false, skip to next XML
             HD_NEXT_XML(holder);
             return;
          }
@@ -1884,32 +1920,32 @@ Usage Instructions
             // DON'T update lastTargetOffset here - it will be updated at CLOSE_TAG
          }
 
-         // Trigger prediction after first target if not already active
-         if (!holder.predictionActive && holder.logSize == 1) {
-            // Build partial log with what we have so far
-            long[] partialDist = new long[holder.logSize];
-            long[] partialHash = new long[holder.logSize];
-            System.arraycopy(holder.logDistances, 0, partialDist, 0, holder.logSize);
-            System.arraycopy(holder.logHashes, 0, partialHash, 0, holder.logSize);
-            xmlBluePrint.LogEntry partialLog = new xmlBluePrint.LogEntry(partialDist, partialHash, holder.logSize);
+         // DISABLED: Trigger prediction after first target if not already active
+         // if (!holder.predictionActive && holder.logSize == 1) {
+         //    // Build partial log with what we have so far
+         //    long[] partialDist = new long[holder.logSize];
+         //    long[] partialHash = new long[holder.logSize];
+         //    System.arraycopy(holder.logDistances, 0, partialDist, 0, holder.logSize);
+         //    System.arraycopy(holder.logHashes, 0, partialHash, 0, holder.logSize);
+         //    xmlBluePrint.LogEntry partialLog = new xmlBluePrint.LogEntry(partialDist, partialHash, holder.logSize);
+         //
+         //    // Find best matching log from blueprint
+         //    xmlBluePrint.LogEntry bestMatch = holder.bluePrint.findBestMatch(partialLog);
+         //    // System.err.println("[PREDICT_INIT] logSize=" + holder.logSize + " bestMatch=" + (bestMatch!=null?bestMatch.size:"null") + " predictionActive=" + holder.predictionActive);
+         //    if (bestMatch != null && bestMatch.size > holder.logSize) {
+         //       holder.predictedLog = bestMatch;
+         //       holder.predictedIndex = holder.logSize; // start predicting from next target
+         //       holder.predictionActive = true;
+         //       holder.predictionValid = true;
+         //       // System.err.println("[PREDICT_INIT] ACTIVATED predictedIndex=" + holder.predictedIndex + " predictedLog.size=" + holder.predictedLog.size);
+         //    }
+         // }
 
-            // Find best matching log from blueprint
-            xmlBluePrint.LogEntry bestMatch = holder.bluePrint.findBestMatch(partialLog);
-            System.err.println("[PREDICT_INIT] logSize=" + holder.logSize + " bestMatch=" + (bestMatch!=null?bestMatch.size:"null") + " predictionActive=" + holder.predictionActive);
-            if (bestMatch != null && bestMatch.size > holder.logSize) {
-               holder.predictedLog = bestMatch;
-               holder.predictedIndex = holder.logSize; // start predicting from next target
-               holder.predictionActive = true;
-               holder.predictionValid = true;
-               System.err.println("[PREDICT_INIT] ACTIVATED predictedIndex=" + holder.predictedIndex + " predictedLog.size=" + holder.predictedLog.size);
-            }
-         }
-
-         // If prediction active, verify prediction
-         if (holder.predictionActive && holder.predictionValid
-               && holder.predictedIndex < holder.predictedLog.size) {
-            verifyPrediction(holder, targetStart, hTagName);
-         }
+         // DISABLED: If prediction active, verify prediction
+         // if (holder.predictionActive && holder.predictionValid
+         //       && holder.predictedIndex < holder.predictedLog.size) {
+         //    verifyPrediction(holder, targetStart, hTagName);
+         // }
          return;
       }
    };
@@ -1917,7 +1953,7 @@ Usage Instructions
    private static final CELL HD_BEGIN_ATTR = new CELL() {
       @Override
       public void call(xmlBluePrintHolder holder) {
-         System.err.println("[HD_BEGIN_ATTR] pointer=" + holder.pointer + " char=" + (char)holder.jobStart[holder.inprogress][holder.pointer] + " state->S_ATTR");
+         // System.err.println("[HD_BEGIN_ATTR] pointer=" + holder.pointer + " char=" + (char)holder.jobStart[holder.inprogress][holder.pointer] + " state->S_ATTR");
          holder.attrName = holder.pointer++;
          holder.xmlState = S_ATTR;
       }
@@ -1926,11 +1962,11 @@ Usage Instructions
    private static final CELL HD_NOVAL_ATTR = new CELL() {
       @Override
       public void call(xmlBluePrintHolder holder) {
-         holder.xmlState = S_TARGET_INTAG; 
+         holder.xmlState = S_TARGET_INTAG;
          holder.attrEnd = holder.pointer;
 
          // callback to user
-         if (!holder.currentNode.handler.call(holder.currentNode.idToken, holder, EV_ATTR, holder.attrName, holder.attrEnd, 0, 0)){
+         if (!holder.currentNode.callHandlers(holder, EV_ATTR, holder.attrName, holder.attrEnd, 0, 0)){
             HD_NEXT_XML(holder);
          }
       }
@@ -1939,7 +1975,7 @@ Usage Instructions
    private static final CELL HD_TO_TARGET_INNER = new CELL() {
       @Override
       public void call(xmlBluePrintHolder holder) {
-         System.err.println("[HD_TO_TARGET_INNER] pointer=" + holder.pointer + " state->S_TARGET_INNER");
+         // System.err.println("[HD_TO_TARGET_INNER] pointer=" + holder.pointer + " state->S_TARGET_INNER");
          holder.xmlState = S_TARGET_INNER;
          holder.value = ++holder.pointer;
       }
@@ -1955,7 +1991,7 @@ Usage Instructions
             }
          }
          holder.pointer++;
-         if (! holder.currentNode.handler.call(holder.currentNode.idToken, holder, EV_CLOSE_TAG, 0, 0, 0, 0)) {
+         if (!holder.currentNode.callHandlers(holder, EV_CLOSE_TAG, 0, 0, 0, 0)) {
             HD_NEXT_XML(holder);
             return;
          }
@@ -2048,7 +2084,7 @@ Usage Instructions
 
          if (holder.attrEnd > holder.attrName) {
             // callback to user
-            if (! holder.currentNode.handler.call(holder.currentNode.idToken, holder, EV_ATTR, holder.attrName, holder.attrEnd, holder.value, holder.valEnd)){
+            if (!holder.currentNode.callHandlers(holder, EV_ATTR, holder.attrName, holder.attrEnd, holder.value, holder.valEnd)){
                HD_NEXT_XML(holder);
                return;
             }
@@ -2056,8 +2092,8 @@ Usage Instructions
 
          // case this is self ending tag
          if (isSelfClose) {
-            System.err.println("[HD_END_VALUE] Self-close tag at pointer=" + holder.pointer);
-            if (! holder.currentNode.handler.call(holder.currentNode.idToken, holder, EV_CLOSE_TAG, 0, 0, 0, 0)) {
+            // System.err.println("[HD_END_VALUE] Self-close tag at pointer=" + holder.pointer);
+            if (!holder.currentNode.callHandlers(holder, EV_CLOSE_TAG, 0, 0, 0, 0)) {
                HD_NEXT_XML(holder);
                return;
             } else {
@@ -2072,7 +2108,7 @@ Usage Instructions
 
          // case this is last attribute
          if (isLastAttr) {
-            System.err.println("[HD_END_VALUE] Last attr at pointer=" + holder.pointer + " state->S_TARGET_INNER");
+            // System.err.println("[HD_END_VALUE] Last attr at pointer=" + holder.pointer + " state->S_TARGET_INNER");
             holder.xmlState = S_TARGET_INNER;
             holder.value = holder.pointer;
             return;
@@ -2089,7 +2125,7 @@ Usage Instructions
       @Override
       public void call(xmlBluePrintHolder holder) {
          holder.valEnd = holder.pointer++;
-         if (! holder.currentNode.handler.call(holder.currentNode.idToken, holder, EV_INNER_TEXT, 0, 0, holder.value, holder.valEnd)) {
+         if (!holder.currentNode.callHandlers(holder, EV_INNER_TEXT, 0, 0, holder.value, holder.valEnd)) {
             HD_NEXT_XML(holder);
             return;
          }             
@@ -2219,6 +2255,7 @@ Usage Instructions
    private static final CELL HD_SLASH = new CELL() {
       @Override
       public void call(xmlBluePrintHolder holder) {
+         // System.err.println("[HD_SLASH] pointer=" + holder.pointer + " char=" + (char)holder.jobStart[holder.inprogress][holder.pointer]);
          holder.tagName = ++holder.pointer;
          holder.xmlState = S_SLASH;
          holder.hTagName = 0;
@@ -2229,6 +2266,7 @@ Usage Instructions
    private static final CELL HD_ENDTAG_NAME = new CELL() {
       @Override
       public void call(xmlBluePrintHolder holder) {
+         // System.err.println("[HD_ENDTAG_NAME] CALLED! pointer=" + holder.pointer + " skipDepth=" + holder.skipDepth + " currentNode=" + holder.currentNode + " isTarget=" + (holder.currentNode!=null?holder.currentNode.isTarget:"null"));
          // Step 1: Mark the end of the tag name (current pointer points to the first char after the tag name)
          holder.tagNameEnd = holder.pointer++;
 
@@ -2239,6 +2277,7 @@ Usage Instructions
 
          // Step 2: Check if we have the closing '>' immediately after the tag name
          if (holder.jobStart[holder.inprogress][holder.pointer - 1] != '>') {
+            // System.err.println("[HD_ENDTAG_NAME] Missing '>', char at pointer-1=" + (char)holder.jobStart[holder.inprogress][holder.pointer - 1]);
             // Missing '>', go to state to handle until we find '>'
             holder.xmlState = S_GT_ONLY;
             return;
@@ -2247,6 +2286,7 @@ Usage Instructions
 
         // Step 3: If we are currently skipping an unregistered branch (skipDepth > 0)
         if (holder.skipDepth > 0) {
+            // System.err.println("[HD_ENDTAG_NAME] skipDepth>0, skipName=" + holder.skipName + " hTagName=" + holder.hTagName);
             // If this tag matches the skipName, decrement depth
             if (holder.hTagName == holder.skipName) {
                 holder.skipDepth--;
@@ -2274,6 +2314,7 @@ Usage Instructions
          // Step 4: We are in a registered branch (skipDept == 0)
          // Check if the end tag matches the start tag (by comparing hashes)
          if (holder.hTagName != holder.currentNode.tagHash) {
+            // System.err.println("[HD_ENDTAG_NAME] HASH MISMATCH! hTagName=" + holder.hTagName + " currentNode.tagHash=" + holder.currentNode.tagHash + " currentNode=" + holder.currentNode + " isTarget=" + holder.currentNode.isTarget);
             // Mismatch: end tag does not match the start tag
             if (!holder.bluePrint.errorHandler.call(holder.bluePrint.errorToken, holder, EV_END_NE_BEGIN, 0, 0, 0, 0)) {
                // If the error handler did not consume the error, move to next XML
@@ -2281,6 +2322,7 @@ Usage Instructions
             }
             return;
          }
+         // System.err.println("[HD_ENDTAG_NAME] MATCH! hTagName=" + holder.hTagName + " currentNode=" + holder.currentNode + " isTarget=" + holder.currentNode.isTarget);
 
          // Step 5: Tags match, proceed to handle the closing tag
          holder.currentNode.HD_CLOSINGTAG.call(holder);
