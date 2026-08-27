@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>XML2TXT Dev Deeper Manual</title></head><body>
+<h1>XML2TXT Developer Deeper Manual</h1>
+<h2>Parser Tuning</h2>
+<p>Slot count formula: (2^N)-1. N=2 => 3 slots; N=4 => 15; N=5 => 31.</p>
+<p>Set <code>C_PipeLineDeep</code> via <code>-N</code> (2–16, default 2). Higher depth increases pipeline slots but increases memory for tokens and buffer reuse.</p>
+<h2>Flush Behavior</h2>
+<p><code>flushXmlToken</code> writes each entry via <code>PrintWriter.println()</code>; disk flush occurs every 1000 records (<code>flushBatchCount % 1000 == 0</code>). This is the main disk-I/O bottleneck.</p>
+<h2>Threading</h2>
+<p>Parser uses <code>setThreadCount(-t)</code>; MainLoop runs in single thread pulling from parser. Multi-thread improves parser throughput but flush remains single-threaded.</p>
+<h2>File Sources</h2>
+<p><code>SourceHandler.getXml()</code> returns <code>XmlPackage</code> objects; supports .xml directly and .zip entries containing .xml.</p>
+<h2>Blueprint Parsing</h2>
+<p><code>BPParser.parseBP()</code> produces <code>HashMap&lt;Long, TokenEntity&gt;</code>; entities and columns registered via <code>parser.regist(path, handler, obj)</code>.</p>
+</body></html>

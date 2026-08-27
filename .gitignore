@@ -1,12 +1,3 @@
-# Whitelist approach - only track .jar, .java, .html, and GOAL.md files
-# Everything else is ignored by default
-
-# Ignore everything
-*
-
-# Track these specific file types
-!*.jar
-!*.java
-!*.html
-!GOAL.md
-!.gitignore
+*.class
+compiled/*.class
+!java/*.jar

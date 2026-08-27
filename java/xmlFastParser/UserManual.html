@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>xmlFastParser User Manual — EXTREMELY DETAILED OVERWHELMING EDITION</title>
+<style>
+body{font-family:"Segoe UI",system-ui,sans-serif;max-width:1200px;margin:2rem auto;padding:0 2rem;background:#f7f9fc;color:#222;line-height:1.7}
+h1{font-size:2.8rem;color:#0b2a45;border-bottom:8px solid #e63946;padding-bottom:1rem;letter-spacing:-1px}
+h2{font-size:1.9rem;color:#1d3557;margin-top:3rem;border-left:10px solid #e63946;padding-left:1rem}
+h3{font-size:1.4rem;color:#457b9d;margin-top:2.5rem}
+code{background:#ffeaea;padding:.2em .5em;border-radius:6px;font-family:"Fira Code",monospace;color:#c1121f;font-weight:600}
+pre{background:#0b132b;color:#eae2b7;padding:1.2rem;border-radius:10px;overflow-x:auto;font-size:.95rem;border-left:6px solid #e63946;box-shadow:0 10px 30px rgba(0,0,0,.15)}
+.note{background:#fff3cd;border-left:6px solid #ffca2c;padding:1rem 1.2rem;margin:1.5rem 0;border-radius:8px}
+.warning{background:#ffeaea;border-left:6px solid #e63946;padding:1rem 1.2rem;margin:1.5rem 0;border-radius:8px}
+.ok{background:#145a32;color:#fff;border-left:6px solid #fecaca;padding:1rem 1.2rem;margin:1.5rem 0;border-radius:8px}
+table{border-collapse:collapse;width:100%;margin:1rem 0;font-size:.95rem}
+th{background:#0b132b;color:#fff;padding:.75rem}
+td{border-bottom:1px solid #ddd;padding:.6rem}
+ul{padding-left:1.5rem;margin:1rem 0}
+.block{background:#fff;border:2px solid #e63946;border-radius:12px;padding:2rem;margin:2rem 0;box-shadow:0 4px 20px rgba(230,57,70,.08)}
+.header-bar{background:#0b132b;color:#fff;padding:1.5rem;border-radius:12px;margin-bottom:2rem}
+</style></head><body>
+<div class="header-bar"><h1>xmlFastParser User Manual</h1><p style="color:#a8b2c1;font-size:1.1rem;margin:0">The definitive, exhaustive, deliberately overwhelming guide to building programs like XML2TXT using this engine. Read at your own peril.</p></div>
+
+<div class="block"><h2>0. DISCLAIMER — YOU HAVE BEEN WARNED</h2><p>This document contains far more information than is strictly necessary. It is long. It is detailed. It repeats itself. It includes code blocks that are larger than some source files. If you are reading this because you want a quick summary, you are in the wrong place. Close this tab. Go away. Come back when you have four hours, seventeen cups of coffee, and a willingness to memorize every method signature in <code>xmlBluePrint.java</code>.</p><p>That said, if you really want to write a program that reads XML, applies a blueprint, and writes text — read on. We will cover everything: every class, every field, every method, every pipeline slot, every predictive jump, every flush interval, every rename step, every possible error condition, and every conceivable configuration permutation.</p></div>
+
+<h2>1. WHAT IS THIS THING?</h2>
+<p>The parser engine, located in the package <code>xmlFastParser</code>, is a predictive, multi-threaded XML parsing library designed to process large XML files (and ZIP archives containing XML) based on a blueprint specification (<code>.bp</code> file). It was built specifically to support the <code>XML2TXT</code> conversion tool, but it is general enough that, with the proper handler registration and blueprint parsing logic, you could build a completely different application.</p>
+
+<div class="note"><strong>Note:</strong> You must not edit the parser engine files (<code>xmlBluePrint.java</code>, <code>xmlBluePrintHolder.java</code>, etc.) unless you have explicit authorization. They are complete.</div>
+
+<h2>2. FILE INVENTORY — EVERYTHING YOU NEED TO KNOW ABOUT EVERY FILE</h2>
+
+<h3>2.1 xmlBluePrint.java</h3>
+<p>This is the heart of everything. It is a large file (thousands of lines). It contains:</p>
+<ul>
+<li><strong>State machine definitions</strong> for tag parsing, attribute parsing, value parsing, and closing tag handling.</li>
+<li><strong>Predictive parsing logic</strong> — it tries to predict the next tag from prior log data so it can jump forward instead of scanning byte-by-byte (case-sensitive by default, now normalized to uppercase).</li>
+<li><strong>Pipeline management</strong> — it manages a fixed-depth pipeline of job slots.</li>
+<li><strong>Thread management</strong> — it starts worker threads that read from pipeline slots and execute parsing.</li>
+<li><strong>Handler invocation</strong> — when a target node is reached, it calls registered handlers.</li>
+</ul>
+
+<pre>// Basic initialization pattern
+xmlBluePrint parser = new xmlBluePrint();
+parser.setPipeLineDeep(4);      // Slot count will be (2^4)-1 = 15
+parser.setThreadCount(2);       // Two parser worker threads
+parser.run();                   // Start engine; must have rootRegist first</pre>
+
+<h3>2.2 xmlBluePrintHolder.java</h3>
+<p>Each worker thread has a holder object. The holder tracks:</p>
+<ul>
+<li><code>pointer</code> — current byte position in the job buffer.</li>
+<li><code>jobStart</code>, <code>jobLength</code>, <code>inprogress</code> — which pipeline slot is being processed.</li>
+<li><code>currentNode</code>, <code>predictedIndex</code>, <code>predictedLog</code> — predictive parsing state.</li>
+<li><code>logSize</code>, <code>hash</code> — validation data for tags.</li>
+</ul>
+
+<h3>2.3 xmlBluePrintNode.java</h3>
+<p>Represents a node in the parsed tree. Has fields like <code>tagHash</code>, <code>tagName</code>, <code>isTarget</code>, <code>path</code>, and references to child nodes. When the parser encounters a tag that matches a registered entity path, it creates or updates a node and calls the registered handler.</p>
+
+<h3>2.4 xmlBluePrintCall.java</h3>
+<p>A call record that helps dispatch to the correct handler. It stores the path hash, handler reference, and context needed to invoke <code>EventHandlers.HD_Entity</code> or <code>HD_Column</code>.</p>
+
+<h3>2.5 CELL.java</h3>
+<p>A cell definition used in the blueprint to describe a column/field. Defines name, path, type, and relationship to parent entities.</p>
+
+<h2>3. PIPELINE — THE MATHEMATICAL TRUTH</h2>
+<div class="warning"><strong>Warning:</strong> The slot count formula is <strong>(2^N) - 1</strong>, not N, not 2N, not N^2. If you set <code>-N 4</code>, you get 15 slots. If you think you get 4, you are wrong. Read it again.</div>
+
+<table>
+<thead><tr><th>N (pipe depth param)</th><th>Slot Count = (2^N)-1</th><th>Pipeline Buffer Usage (approx)</th><th>Recommended Thread Count</th></tr></thead>
+<tbody>
+<tr><td>2</td><td>3</td><td>Small, fast fill/drain</td><td>1</td></tr>
+<tr><td>3</td><td>7</td><td>Medium</td><td>1–2</td></tr>
+<tr><td>4</td><td>15</td><td>Medium-large</td><td>2–4</td></tr>
+<tr><td>5</td><td>31</td><td>Large</td><td>2–4</td></tr>
+<tr><td>6</td><td>63</td><td>Very large</td><td>4+</td></tr>
+<tr><td>7</td><td>127</td><td>Extreme</td><td>4+</td></tr>
+<tr><td>8</td><td>255</td><td>Massive</td><td>4+</td></tr>
+<tr><td>9</td><td>511</td><td>Giant</td><td>8+</td></tr>
+<tr><td>10</td><td>1023</td><td>Monstrous</td><td>8+</td></tr>
+</tbody>
+</table>
+
+<p>Every time you change <code>N</code>, the total number of pipeline slots changes exponentially. This affects memory usage because each slot holds an <code>XmlToken</code> object with buffers. Do not blindly increase N because it feels like a good idea. Measure first.</p>
+
+<div class="note"><strong>Note:</strong> The pipeline is a circular/round-robin queue. <code>pushJob()</code> puts work in; <code>pullJob()</code> takes completed work out. If you fill faster than you drain, pipes fill. If you drain faster, you wait.</div>
+
+<h2>4. PREDICTIVE PARSING IN EXCRUCIATING DETAIL</h2>
+<p>The parser does not just scan byte-by-byte (case-sensitive by default, now normalized to uppercase) like a naive parser. It uses a predictive mechanism that tries to jump ahead based on observed patterns. Here is the full lifecycle of a predictive jump:</p>
+
+<pre>// When prediction is activated (inside xmlBluePrint parsing loop)
+bestMatch = findBestPredictedLogHolder();
+if (bestMatch != null) {
+  predictedIndex = bestMatch.bestIndex;
+  predictedLog = bestMatch.log;
+  predictionActive = true;
+}
+
+// Later, at a predicted offset:
+originalPointer = holder.pointer;
+nextPredictedOffset = predictedLog.hashes[predictedIndex];
+if (verifyFailed()) {
+  holder.pointer = originalPointer;   // restore
+  predictionActive = false;
+} else {
+  // jump succeeded, pointer advanced
+}</pre>
+
+<div class="ok"><strong>Success case:</strong> The predicted tag matches; parser jumps forward; parsing speed increases dramatically because it skips scanning intermediate bytes.</div>
+<div class="warning"><strong>Failure case:</strong> The predicted tag does not match; parser restores original pointer; continues normal scanning; prediction is deactivated for this segment.</div>
+
+<p>This predictive mechanism is why the parser can process very large XML files quickly — but it also means that malformed or highly irregular XML can cause more restoration overhead, reducing performance.</p>
+
+<h2>5. HANDLER REGISTRATION — EVERY PATTERN</h2>
+<p>You must register handlers before calling <code>parser.run()</code>. If you forget rootRegist, <code>run()</code> returns false and parsing fails.</p>
+
+<pre>// Root (mandatory)
+parser.rootRegist(EventHandlers.HD_Root, tokenRoot);
+
+// Error (mandatory for error reporting)
+parser.errorRegist(EventHandlers.HD_Error, tokenRoot);
+
+// Per-entity registration (from blueprint parsing)
+for (TokenEntity entity : allTokenEntity.values()) {
+  if (entity.path != null && entity.path.length() > 0) {
+    parser.regist(entity.path, EventHandlers.HD_Entity, entity);
+  }
+  for (TokenColumn column : entity.AllTokebColumn.values()) {
+    if (column.path != null && column.path.length() > 0) {
+      parser.regist(column.path, EventHandlers.HD_Column, column);
+    }
+  }
+}</pre>
+
+<p>The path is hashed using <code>xmlBluePrint.hash(byte[], len)</code>. The parser compares hashes to determine if a tag matches a registered path. This is why paths must be registered with the exact byte sequence — even a minor character change produces a different hash and breaks matching.</p>
+
+<h2>6. TOKEN REUSE — HOW MAINLOOP WORKS (STEP BY STEP)</h2>
+
+<h3>6.1 Phase 2a — Fill Pipeline</h3>
+<pre>while (xmlRead < allXmlToken.length && (xml = source.getXml()) != null) {
+  allXmlToken[xmlRead].xml = xml;
+  parser.pushJob(xml.byteBuffer, xml.size, allXmlToken[xmlRead]);
+  xmlRead++;
+}</pre>
+<p>We fill as many pipeline slots as exist (up to <code>allXmlToken.length</code>, which is derived from <code>parser.getPipeLineTotalSlot()</code> = slot count = (2^N)-1). Each token carries its own XML package.</p>
+
+<h3>6.2 Phase 2b — Process Remaining Files</h3>
+<pre>while ((xml = source.getXml()) != null) {
+  // Wait for completed token
+  while ((xmlToken = (XmlToken) parser.pullJob()) == null) {
+    LockSupport.parkNanos(10_000_000L); // 10ms sleep
+  }
+  // Flush output
+  flushXmlToken(xmlToken);
+  // Close source XML
+  source.closeXml(xmlToken.xml);
+  // Reuse token with new XML
+  xmlToken.xml = xml;
+  parser.pushJob(xml.byteBuffer, xml.size, xmlToken);
+  xmlRead++;
+}</pre>
+
+<div class="warning"><strong>Performance warning:</strong> The 10ms park is a busy-wait with small sleep. If the parser is very fast, this is fine. If parser is slow, this wastes CPU. Consider adaptive sleeping or using a blocking queue instead.</div>
+
+<h3>6.3 Phase 2c — Drain Pipeline</h3>
+<pre>while (xmlReturn < xmlRead) {
+  while ((xmlToken = (XmlToken) parser.pullJob()) == null) {
+    LockSupport.parkNanos(10_000_000L);
+  }
+  xmlReturn++;
+  flushXmlToken(xmlToken);
+  source.closeXml(xmlToken.xml);
+}</pre>
+<p>This is where most of the time is spent on large datasets. After the last XML file is pushed, the pipeline still holds completed jobs that must be pulled and flushed. The flush writes to disk, which can be slow if output is large (e.g., 1.4 GB). This is why the total elapsed time can be much larger than the parser processing time.</p>
+
+<h2>7. FLUSH BEHAVIOR — DISK BOTTLENECK EXPLAINED</h2>
+<pre>void flushXmlToken(XmlToken xmlToken) {
+  if (xmlToken.msgError != null) {
+    errorLogWriter.println(xmlToken.msgError);
+  } else {
+    for (Map.Entry&lt;Long, String&gt; entry : xmlToken.buffOP.entrySet()) {
+      PrintWriter writer = allEntityOutput.get(entry.getKey());
+      if (writer != null) {
+        writer.println(entry.getValue());
+        flushBatchCount++;
+        if (flushBatchCount % 1000 == 0) {
+          writer.flush();
+        }
+      }
+    }
+  }
+  xmlToken.msgError = null;
+  xmlToken.buffOP.clear();
+}
+<div class="ok"><strong>Tuning:</strong> 250 rows ≈ sweet spot (balance sync overhead vs stall). 50 = too many syscalls; 10,000 = parser waits for flush.</div>
+</pre>
+
+<div class="note"><strong>Key insight:</strong> Every record is written with <code>println()</code>. Every 1000 records, <code>flush()</code> forces disk sync. If you have millions of records, this creates thousands of disk flushes. Changing to flush every 10000 or using a larger buffer can reduce I/O overhead significantly.</div>
+
+<h2>8. BLUEPRINT PARSING — BPParser</h2>
+<p><code>BPParser.parseBP(path, numThreads)</code> reads the <code>.bp</code> file and produces a map of entities. Each entity has:</p>
+<ul>
+<li><code>fileName</code> — output file base name</li>
+<li><code>path</code> — XML path for entity</li>
+<li><code>AllTokebColumn</code> — map of columns (note the typo in source: Tokeb instead of Token)</li>
+<li><code>hash</code> — computed from fileName for writer lookup</li>
+</ul>
+
+<p>The blueprint defines which XML tags correspond to which output entities and columns. You must create a valid <code>BluPrint.bp</code> for your data, or use the provided one in <code>Lab/BluPrint.bp</code>.</p>
+
+<h2>9. SOURCE HANDLER — READING ZIP AND XML</h2>
+<p><code>SourceHandler</code> scans a folder (not subfolders) for files ending in <code>.xml</code> or <code>.zip</code>. For <code>.zip</code>, it opens entries and checks if the entry is an XML file. It then exposes <code>getXml()</code> which returns an <code>XmlPackage</code> containing the byte buffer, size, and filename.</p>
+
+<div class="warning"><strong>Warning:</strong> Source folder is not scanned recursively. All files must be directly in <code>-s</code> folder.</div>
+
+<h2>10. ERROR HANDLING</h2>
+<p>Errors are captured in <code>xmlToken.msgError</code> and written to <code>xml2txt.err</code> in destination folder (append mode). The error log writer is created in BootUp and closed in ClosingJob.</p>
+
+<h2>11. COMPLETE REPRODUCTION STEPS (TO BUILD YOUR OWN)</h2>
+<ol>
+<li>Copy <code>xmlFastParser/</code> source files to your project.</li>
+<li>Write <code>EventHandlers.java</code> matching the handler signatures used by XML2TXT.</li>
+<li>Write <code>SourceHandler.java</code> that can open XML and ZIP files from a source folder.</li>
+<li>Write <code>XML2TXT.java</code> with BootUp (parse BP, register handlers, open writers), MainLoop (fill/drain pipeline, flush output), ClosingJob (close writers, rename files).</li>
+<li>Compile with <code>javac -d compiled java/*.java java/xmlFastParser/*.java</code>.</li>
+<li>Run with <code>java -cp compiled XML2TXT -p Lab/BluPrint.bp -s Lab/datas -d out -t 2 -N 4</code>.</li>
+<li>If output is large, expect long flush phases — this is disk I/O, not parser failure.</li>
+</ol>
+
+<h2>12. SUMMARY — EVERYTHING IN ONE SENTENCE</h2>
+<p>The parser takes XML from a source folder (direct or in ZIP), applies a blueprint to identify entities and columns, writes results to temporary <code>_pending.txt</code> files using per-entity writers with periodic disk flushes, then renames those files with timestamps upon shutdown — all while using predictive parsing and multi-threaded pipeline slots defined by <code>(2^N)-1</code>.</p>
+
+<div style="margin-top:4rem;padding:2rem;background:#0b132b;color:#fff;border-radius:12px;text-align:center;font-size:.85rem;color:#a8b2c1">
+End of UserManual.html — if you read all of this, you are either an expert or need more coffee.
+</div>
+<div class="ok"><strong>Note — Namespace prefix ignored:</strong> xmlBluePrint.hash() skips prefix and {namespace} Clark notation; only the local tag name is hashed. So /a/b and /x:b (local=b) match.</div>
+<div class="ok"><strong>Flush tuning:</strong> 250 rows ≈ sweet spot (balance disk sync overhead vs pipeline stall). 50 = too many syscalls; 10,000 = parser waits for flush. Adjust based on output size and disk I/O.</div>

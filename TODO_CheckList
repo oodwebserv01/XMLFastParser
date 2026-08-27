@@ -1,0 +1,22 @@
+TODO_CheckList (XML2TXT.py — Python-only, single-thread, string-FSM)
+
+[ ] 1. อ่าน GOAL_FOR_XML2TXT_PY_VERSION.md (done)
+[ ] 2. ยืนยัน /java/ ไม่แตะ; compiled/ แยก
+[ ] 3. สร้าง / compiled/ ถ้ายังไม่มี (ไม่ต้องสร้าง jar ใหม่)
+[ ] 4. ออกแบบ string-FSM: สถานะ S_TAG / S_ATTR / S_VALUE / S_CLOSE
+[ ] 5. ออกแบบ predictive jump: ข้ามไปตำแหน่ง tag ตาม .bp paths
+[ ] 6. เขียน python/XML2TXT.py (inline) — replace stub:
+    [ ] 6.1 parse_args (-p -s -d -t)
+    [ ] 6.2 load_bp (.bp -> entity + paths)
+    [ ] 6.3 boot_up (mkdir dest)
+    [ ] 6.4 main_loop:
+        [ ] 6.4.1 list sources (.xml, .zip) — ไม่ลง subfolder
+        [ ] 6.4.2 ถ้า .zip -> unzip nelist -> .xml แต่ละอัน
+        [ ] 6.4.3 อ่าน .xml เป็น str
+        [ ] 6.4.4 FSM + predictive: ดึงค่าตาม paths -> เก็บผล
+    [ ] 6.5 closing_job: rename _pending -> timestamp .txt
+[ ] 7. ตรวจ .bp output: [entityName]_pending.txt -> rename
+[ ] 8. ตรวจ garbage / ขยะ: ดูว่า .txt มีข้อมูลถูกต้องตาม paths
+[ ] 9. ทดสอบ 1 xml -> ผ่าน
+[ ] 10. ทดสอบ 5 xml / zip -> ผ่าน (ไม่ hang, ไม่มี garbage)
+[ ] 11. สรุป: /java ไม่แตะ, compiled/ แยก, ไม่มี JVM

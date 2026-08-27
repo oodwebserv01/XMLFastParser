@@ -1,0 +1,9 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>XML2TXT User Manual</title></head><body>
+<h1>XML2TXT User Manual</h1>
+<p>Usage: java -cp compiled XML2TXT -p &lt;bp&gt; -s &lt;src&gt; -d &lt;dest&gt; [-t threads] [-N pipe]</p>
+<ul><li><b>-p</b> blueprint (.bp)</li><li><b>-s</b> source folder</li><li><b>-d</b> destination folder</li><li><b>-t</b> parser threads (default 1)</li><li><b>-N</b> pipeline depth 2-16 (default 2)</li></ul>
+<p>Output naming: [entityName]_ThreadNo_YYYYMMDDHHmmss.txt. Pending file written first, renamed on ClosingJob.</p>
+<h2>Phases</h2>
+<p>Pipeline slots = (2^N)-1 (N=2 &rarr; 3, 4 &rarr; 15, 5 &rarr; 31). Use -N to set N.</p><ol><li>BootUp: parse BP, register handlers, prepare writers</li><li>MainLoop: fill pipeline, process XML/zip, flush to output</li><li>ClosingJob: close writers, rename pending files, shutdown parser</li></ol>
+</body></html>
