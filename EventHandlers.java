@@ -23,7 +23,6 @@ public class EventHandlers {
 
             if (event == xmlBluePrint.EV_CLOSE_TAG) {
                 long seq = callSeq.incrementAndGet();
-                System.err.println("[HD_Root #" + seq + "] EV_CLOSE_TAG called, thread=" + holder.getThreadNO() + " pointer=" + holder.pointer);
                 // XML document ended - flush all entity data to xmlToken
                 XmlToken xmlToken = (XmlToken) holder.getTokenFile();
 
@@ -37,7 +36,6 @@ public class EventHandlers {
                 for (java.util.Map.Entry<Long, TokenEntity> entry : tokenRoot.AllTokenEntity.entrySet()) {
                     Long key = entry.getKey();
                     TokenEntity tokenEntity = entry.getValue();
-                    System.err.println("[HD_Root #" + seq + "] Processing entity=" + tokenEntity.fileName + " isEmpty=" + tokenEntity.isEmpty + " StockLen=" + tokenEntity.Stock[holder.getThreadNO()].length() + " objHash=" + System.identityHashCode(tokenEntity) + " entityHash=" + tokenEntity.hashCode());
 
                     if (!tokenEntity.isEmpty) {
                         // Build row from Factory buffers
@@ -55,12 +53,10 @@ public class EventHandlers {
                         boolean before = tokenEntity.isEmpty;
                         tokenEntity.isEmpty = true;
                         boolean after = tokenEntity.isEmpty;
-                        System.err.println("[HD_Root #" + seq + "] Row built for " + tokenEntity.fileName + ", StockLen=" + tokenEntity.Stock[holder.getThreadNO()].length() + " isEmpty before=" + before + " after=" + after);
                     }
 
                     // Move Stock data to xmlToken.buffOP for writing
                     String stockContent = tokenEntity.Stock[holder.getThreadNO()].toString();
-                    System.err.println("[HD_Root] Moving Stock to buffOP for " + tokenEntity.fileName + ", content length=" + stockContent.length());
                     xmlToken.buffOP.put(key, stockContent);
 
                     // Clear Stock for this thread
@@ -68,7 +64,6 @@ public class EventHandlers {
                 }
             }
             else if (event == xmlBluePrint.EV_OPEN_TAG) {
-                System.err.println("[HD_Root] EV_OPEN_TAG called, thread=" + holder.getThreadNO());
                 // Wake up main thread when parser starts new job
                 LockSupport.unpark(tokenRoot.thread);
             }
@@ -138,7 +133,6 @@ public class EventHandlers {
             if (event == xmlBluePrint.EV_CLOSE_TAG) {
                 long seq = callSeq.incrementAndGet();
                 TokenEntity tokenEntity = (TokenEntity) idToken;
-                System.err.println("[HD_Entity #" + seq + "] Called for entity=" + tokenEntity.fileName + " isEmpty=" + tokenEntity.isEmpty + " thread=" + holder.getThreadNO() + " pointer=" + holder.pointer + " objHash=" + System.identityHashCode(tokenEntity) + " entityHash=" + tokenEntity.hashCode());
 
                 if (!tokenEntity.isEmpty) {
                     XmlToken xmlToken = (XmlToken) holder.getTokenFile();
@@ -159,7 +153,6 @@ public class EventHandlers {
                     boolean before = tokenEntity.isEmpty;
                     tokenEntity.isEmpty = true;
                     boolean after = tokenEntity.isEmpty;
-                    System.err.println("[HD_Entity #" + seq + "] Row built, Stock length=" + tokenEntity.Stock[holder.getThreadNO()].length() + " isEmpty before=" + before + " after=" + after);
                 }
             }
             return true;
@@ -179,11 +172,10 @@ public class EventHandlers {
             if (event == xmlBluePrint.EV_INNER_TEXT) {
                 // Inner text content (#)
                 byte[] buf = holder.getByteBuffer();
-                String value = new String(buf, valueBegin, valueEnd - valueBegin);
+                String value = new String(buf, valueBegin, valueEnd - valueBegin).trim();
                 rowBuffer[tokenColumn.inner].append(value);
                 boolean before = tokenColumn.entity.isEmpty;
                 tokenColumn.entity.isEmpty = false; // Mark row as having data
-                System.err.println("[HD_Column #" + seq + "] EV_INNER_TEXT entity=" + tokenColumn.entity.fileName + " col=" + tokenColumn.path + " pointer=" + holder.pointer + " isEmpty before=" + before + " after=" + tokenColumn.entity.isEmpty);
             }
             else if (event == xmlBluePrint.EV_ATTR) {
                 // Attribute value (@)
@@ -191,11 +183,10 @@ public class EventHandlers {
                 long attrHash = xmlBluePrint.hash(buf, nameBegin, nameEnd);
                 Integer colIndex = tokenColumn.AllAttr.get(attrHash);
                 if (colIndex != null) {
-                    String value = new String(buf, valueBegin, valueEnd - valueBegin);
+                    String value = new String(buf, valueBegin, valueEnd - valueBegin).trim();
                     rowBuffer[colIndex].append(value);
                     boolean before = tokenColumn.entity.isEmpty;
                     tokenColumn.entity.isEmpty = false; // Mark row as having data
-                    System.err.println("[HD_Column #" + seq + "] EV_ATTR entity=" + tokenColumn.entity.fileName + " col=" + tokenColumn.path + " pointer=" + holder.pointer + " isEmpty before=" + before + " after=" + tokenColumn.entity.isEmpty);
                 }
             }
             return true;

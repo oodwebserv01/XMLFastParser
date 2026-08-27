@@ -218,39 +218,39 @@ Usage Instructions
                   // System.err.println("[WORKER-" + holder.threadNo + "] Start processing job, length=" + holder.jobLength[holder.inprogress] + " pointer=" + holder.pointer);
                   while (holder.pointer < holder.jobLength[holder.inprogress]) {
                      // PREDICTIVE FAST-PATH: DISABLED for testing
-                     // if (holder.predictionActive && holder.predictionValid
-                     //     && holder.predictedIndex < holder.predictedLog.size) {
-                     //    int nextPredictedOffset;
-                     //    if (holder.predictedIndex == 0 && holder.rootOffset >= 0) {
-                     //       nextPredictedOffset = holder.rootOffset + (int)holder.predictedLog.distances[0];
-                     //    } else if (holder.lastTargetOffset >= 0) {
-                     //       nextPredictedOffset = holder.lastTargetOffset + (int)holder.predictedLog.distances[holder.predictedIndex];
-                     //    } else {
-                     //       nextPredictedOffset = -1;
-                     //    }
-                     //
-                     //    if (nextPredictedOffset > holder.pointer && nextPredictedOffset < holder.jobLength[holder.inprogress]) {
-                     //       // Save original pointer for potential rollback
-                     //       int originalPointer = holder.pointer;
-                     //       // Jump directly to predicted target start
-                     //       holder.pointer = nextPredictedOffset;
-                     //       // Peek: verify tag at predicted position
-                     //       if (verifyTagAtPointer(holder, holder.predictedLog.hashes[holder.predictedIndex])) {
-                     //          // System.err.println("[PREDICT] Jumped to " + holder.pointer + " predictedIndex=" + holder.predictedIndex + " hash=" + holder.predictedLog.hashes[holder.predictedIndex]);
-                     //          // SUCCESS: Tag verified at predicted position
-                     //          // Now we need to properly parse this tag and update tree state
-                     //          parseTagAtPointer(holder, holder.predictedLog.hashes[holder.predictedIndex]);
-                     //          holder.predictedIndex++;
-                     //          continue; // Skip FSM for jumped region
-                     //       } else {
-                     //          // Verification failed - restore pointer and disable prediction
-                     //          // System.err.println("[PREDICT] Verify failed at " + nextPredictedOffset + " restoring to " + originalPointer);
-                     //          holder.pointer = originalPointer;
-                     //          holder.predictionValid = false;
-                     //          holder.predictionActive = false;
-                     //       }
-                     //    }
-                     // }
+                     if (holder.predictionActive && holder.predictionValid
+                         && holder.predictedIndex < holder.predictedLog.size) {
+                        int nextPredictedOffset;
+                        if (holder.predictedIndex == 0 && holder.rootOffset >= 0) {
+                           nextPredictedOffset = holder.rootOffset + (int)holder.predictedLog.distances[0];
+                        } else if (holder.lastTargetOffset >= 0) {
+                           nextPredictedOffset = holder.lastTargetOffset + (int)holder.predictedLog.distances[holder.predictedIndex];
+                        } else {
+                           nextPredictedOffset = -1;
+                        }
+
+                        if (nextPredictedOffset > holder.pointer && nextPredictedOffset < holder.jobLength[holder.inprogress]) {
+                           // Save original pointer for potential rollback
+                           int originalPointer = holder.pointer;
+                           // Jump directly to predicted target start
+                           holder.pointer = nextPredictedOffset;
+                           // Peek: verify tag at predicted position
+                           if (verifyTagAtPointer(holder, holder.predictedLog.hashes[holder.predictedIndex])) {
+                              // System.err.println("[PREDICT] Jumped to " + holder.pointer + " predictedIndex=" + holder.predictedIndex + " hash=" + holder.predictedLog.hashes[holder.predictedIndex]);
+                              // SUCCESS: Tag verified at predicted position
+                              // Now we need to properly parse this tag and update tree state
+                              parseTagAtPointer(holder, holder.predictedLog.hashes[holder.predictedIndex]);
+                              holder.predictedIndex++;
+                              continue; // Skip FSM for jumped region
+                           } else {
+                              // Verification failed - restore pointer and disable prediction
+                              // System.err.println("[PREDICT] Verify failed at " + nextPredictedOffset + " restoring to " + originalPointer);
+                              holder.pointer = originalPointer;
+                              holder.predictionValid = false;
+                              holder.predictionActive = false;
+                           }
+                        }
+                     }
 
                      // Normal FSM
                      int idx = holder.jobStart[holder.inprogress][holder.pointer] & 0xFF;
@@ -1920,32 +1920,32 @@ Usage Instructions
             // DON'T update lastTargetOffset here - it will be updated at CLOSE_TAG
          }
 
-         // DISABLED: Trigger prediction after first target if not already active
-         // if (!holder.predictionActive && holder.logSize == 1) {
-         //    // Build partial log with what we have so far
-         //    long[] partialDist = new long[holder.logSize];
-         //    long[] partialHash = new long[holder.logSize];
-         //    System.arraycopy(holder.logDistances, 0, partialDist, 0, holder.logSize);
-         //    System.arraycopy(holder.logHashes, 0, partialHash, 0, holder.logSize);
-         //    xmlBluePrint.LogEntry partialLog = new xmlBluePrint.LogEntry(partialDist, partialHash, holder.logSize);
-         //
-         //    // Find best matching log from blueprint
-         //    xmlBluePrint.LogEntry bestMatch = holder.bluePrint.findBestMatch(partialLog);
-         //    // System.err.println("[PREDICT_INIT] logSize=" + holder.logSize + " bestMatch=" + (bestMatch!=null?bestMatch.size:"null") + " predictionActive=" + holder.predictionActive);
-         //    if (bestMatch != null && bestMatch.size > holder.logSize) {
-         //       holder.predictedLog = bestMatch;
-         //       holder.predictedIndex = holder.logSize; // start predicting from next target
-         //       holder.predictionActive = true;
-         //       holder.predictionValid = true;
-         //       // System.err.println("[PREDICT_INIT] ACTIVATED predictedIndex=" + holder.predictedIndex + " predictedLog.size=" + holder.predictedLog.size);
-         //    }
-         // }
+         // Trigger prediction after first target if not already active - DISABLED for testing
+         if (false && !holder.predictionActive && holder.logSize == 1) {
+            // Build partial log with what we have so far
+            long[] partialDist = new long[holder.logSize];
+            long[] partialHash = new long[holder.logSize];
+            System.arraycopy(holder.logDistances, 0, partialDist, 0, holder.logSize);
+            System.arraycopy(holder.logHashes, 0, partialHash, 0, holder.logSize);
+            xmlBluePrint.LogEntry partialLog = new xmlBluePrint.LogEntry(partialDist, partialHash, holder.logSize);
 
-         // DISABLED: If prediction active, verify prediction
-         // if (holder.predictionActive && holder.predictionValid
-         //       && holder.predictedIndex < holder.predictedLog.size) {
-         //    verifyPrediction(holder, targetStart, hTagName);
-         // }
+            // Find best matching log from blueprint
+            xmlBluePrint.LogEntry bestMatch = holder.bluePrint.findBestMatch(partialLog);
+            // System.err.println("[PREDICT_INIT] logSize=" + holder.logSize + " bestMatch=" + (bestMatch!=null?bestMatch.size:"null") + " predictionActive=" + holder.predictionActive);
+            if (bestMatch != null && bestMatch.size > holder.logSize) {
+               holder.predictedLog = bestMatch;
+               holder.predictedIndex = holder.logSize; // start predicting from next target
+               holder.predictionActive = true;
+               holder.predictionValid = true;
+               // System.err.println("[PREDICT_INIT] ACTIVATED predictedIndex=" + holder.predictedIndex + " predictedLog.size=" + holder.predictedLog.size);
+            }
+         }
+
+         // If prediction active, verify prediction - DISABLED for testing
+         if (false && holder.predictionActive && holder.predictionValid
+               && holder.predictedIndex < holder.predictedLog.size) {
+            verifyPrediction(holder, targetStart, hTagName);
+         }
          return;
       }
    };

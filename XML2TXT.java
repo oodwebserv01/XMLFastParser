@@ -37,7 +37,7 @@ public class XML2TXT {
     private int xmlReturn = 0;
 
     // Pipeline config
-    private static final int C_PipeLineDeep = 2;
+    private static final int C_PipeLineDeep = 4;
 
     public static void main(String[] args) {
         XML2TXT app = new XML2TXT();
@@ -174,16 +174,20 @@ public class XML2TXT {
         System.out.println("Phase 2a: Filling pipeline...");
         while (xmlRead < allXmlToken.length && (xml = source.getXml()) != null) {
             allXmlToken[xmlRead].xml = xml;
-            System.err.println("[MAIN] Calling pushJob for xmlRead=" + xmlRead + " size=" + xml.size);
             parser.pushJob(xml.byteBuffer, xml.size, allXmlToken[xmlRead]);
-            System.err.println("[MAIN] pushJob returned");
             xmlRead++;
         }
         System.out.println("Initial pipeline fill: " + xmlRead + " jobs");
 
         // Phase 2b: Reuse tokens - process remaining files
         System.out.println("Phase 2b: Processing files...");
+        String prevFile = null;
         while ((xml = source.getXml()) != null) {
+            // New physical file -> new bar line
+            if (prevFile != null && (xml.name == null || !prevFile.equals(xml.name))) {
+                // file changed
+            }
+            prevFile = xml.name;
             // Wait for completed job
             while ((xmlToken = (XmlToken) parser.pullJob()) == null) {
                 LockSupport.parkNanos(10_000_000L); // 10ms
@@ -217,19 +221,27 @@ public class XML2TXT {
             source.closeXml(xmlToken.xml);
         }
 
+        System.out.println();
         System.out.println("MainLoop complete. Total read: " + xmlRead + ", returned: " + xmlReturn);
     }
+
+    private int flushBatchCount = 0;
 
     private void flushXmlToken(XmlToken xmlToken) {
         if (xmlToken.msgError != null) {
             errorLogWriter.println(xmlToken.msgError);
-            errorLogWriter.flush();
+            // batch error log flush every 1000 too if desired
         } else {
             for (java.util.Map.Entry<Long, String> entry : xmlToken.buffOP.entrySet()) {
                 PrintWriter writer = allEntityOutput.get(entry.getKey());
                 if (writer != null) {
                     writer.println(entry.getValue());
-                    writer.flush();
+                    // Batch disk flush: only every 1000 xml, plus final at close
+                    flushBatchCount++;
+                    if (flushBatchCount % 1000 == 0) {
+                        writer.flush();
+                    }
+// bar removed
                 }
             }
         }
@@ -249,7 +261,12 @@ public class XML2TXT {
         }
         allEntityOutput.clear();
 
-        // 2. Rename _pending.txt to _YYYYMMDDHHmmss.txt
+        // 2. Flush any remaining batched output (<1000) before rename
+        for (PrintWriter writer : allEntityOutput.values()) {
+            writer.flush();
+        }
+
+        // 3. Rename _pending.txt to _YYYYMMDDHHmmss.txt
         String timestamp = new SimpleDateFormat("yyyyMMddHHmmss").format(new Date());
         File destDir = new File(pathDest);
 
@@ -260,7 +277,7 @@ public class XML2TXT {
                 if (oldFile.renameTo(newFile)) {
                     System.out.println("Renamed: " + oldFile.getName() + " -> " + newFile.getName());
                 } else {
-                    System.err.println("Failed to rename: " + oldFile.getName());
+// rename error removed
                 }
             }
         }
@@ -272,7 +289,7 @@ public class XML2TXT {
 
         // 4. Shutdown parser
         if (parser != null) {
-            parser.shutdown(false);
+            parser.shutdown(true);
             parser = null;
         }
 

@@ -102,7 +102,7 @@ public class SourceHandler {
                             xml.idFile = currentZipHandler.idFile;
                             xml.name = currentZipHandler.name + "/" + entry.getName();
 
-                            logWrite(xml.name + " Open " + timestamp());
+                            // logWrite(xml.name + " Open " + timestamp()); // skip zip entry log
                             return xml;
                         }
                     } catch (IOException e) {
@@ -177,7 +177,9 @@ public class SourceHandler {
     public void closeXml(XmlPackage xmlPkg) {
         if (xmlPkg == null || xmlPkg.name == null) return;
 
-        logWrite(xmlPkg.name + " Close " + timestamp());
+        if (xmlPkg.name != null && !xmlPkg.name.contains("/")) {
+            logWrite(xmlPkg.name + " Close " + timestamp());
+        }
 
         // Check if this was from a zip
         if (xmlPkg.idFile != 0) {
