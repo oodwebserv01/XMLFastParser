@@ -242,7 +242,7 @@ public class XML2TXT {
             for (java.util.Map.Entry<Long, String> entry : xmlToken.buffOP.entrySet()) {
                 PrintWriter writer = allEntityOutput.get(entry.getKey());
                 if (writer != null) {
-                    writer.println(entry.getValue());
+                    writer.print(entry.getValue());
                     // Batch disk flush: only every 1000 xml, plus final at close
                     flushBatchCount++;
                     if (flushBatchCount % 250 == 0) {

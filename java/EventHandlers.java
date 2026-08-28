@@ -55,12 +55,14 @@ public class EventHandlers {
                         boolean after = tokenEntity.isEmpty;
                     }
 
-                    // Move Stock data to xmlToken.buffOP for writing
-                    String stockContent = tokenEntity.Stock[holder.getThreadNO()].toString();
-                    xmlToken.buffOP.put(key, stockContent);
+                    // Move Stock data to xmlToken.buffOP only if has content (counter/length)
+                    StringBuffer stockBuf = tokenEntity.Stock[holder.getThreadNO()];
+                    if (stockBuf.length() > 0) {
+                        xmlToken.buffOP.put(key, stockBuf.toString());
+                    }
 
                     // Clear Stock for this thread
-                    tokenEntity.Stock[holder.getThreadNO()].setLength(0);
+                    stockBuf.setLength(0);
                 }
             }
             else if (event == xmlBluePrint.EV_OPEN_TAG) {
@@ -133,6 +135,9 @@ public class EventHandlers {
             if (event == xmlBluePrint.EV_CLOSE_TAG) {
                 long seq = callSeq.incrementAndGet();
                 TokenEntity tokenEntity = (TokenEntity) idToken;
+                if (tokenEntity.isEmpty) {
+                    return true; // Skip assembly if no data
+                }
 
                 if (!tokenEntity.isEmpty) {
                     XmlToken xmlToken = (XmlToken) holder.getTokenFile();
