@@ -6,3 +6,7 @@ test_progress.sh
 compiled/
 Lab/datas/
 Lab/output/
+Lab/testdata/
+*.zip
+*.xml
+Lab/output/
