@@ -20,7 +20,7 @@ public class XML2TXT {
     // ============================================================
     private String pathBP = "BluePrint.bp";
     private int numThreads = 1;
-    private int pipeN = 7;
+    private int flipBatch = 1;
     private String pathSource = ".";
     private String pathDest = ".";
 
@@ -36,11 +36,9 @@ public class XML2TXT {
     private XmlToken[] allXmlToken;
     private int xmlRead = 0;
     private int xmlReturn = 0;
-    private boolean progressStarted = false;
-    private int progressCount = 0;
 
     // Pipeline config
-    private int C_PipeLineDeep = 7;
+    private static final int C_PipeLineDeep = 7;
 
     public static void main(String[] args) {
         XML2TXT app = new XML2TXT();
@@ -59,12 +57,6 @@ public class XML2TXT {
                     break;
                 case "-t":
                     if (i + 1 < args.length) numThreads = Integer.parseInt(args[++i]);
-                    break;
-                case "-N":
-                    if (i + 1 < args.length) pipeN = Integer.parseInt(args[++i]);
-                    if (pipeN < 2) pipeN = 2;
-                    if (pipeN > 16) pipeN = 16;
-                    C_PipeLineDeep = pipeN;
                     break;
                 case "-s":
                     if (i + 1 < args.length) pathSource = args[++i];
@@ -96,6 +88,9 @@ public class XML2TXT {
             System.exit(1);
         }
     }
+
+    private boolean progressStarted = false;
+    private int progressCount = 0;
 
     private void progressBar(int completed) {
         if (!progressStarted) {
@@ -242,7 +237,6 @@ public class XML2TXT {
                 LockSupport.parkNanos(10_000_000L); // 10ms
             }
             xmlReturn++;
-            progressBar(xmlReturn);
 
             // Flush data
             flushXmlToken(xmlToken);
@@ -256,7 +250,6 @@ public class XML2TXT {
         System.out.print("\n");
     }
 
-    private int flipBatch = 1; // flush batch size (default 1; limit 1-10000)
     private int flushBatchCount = 0;
 
     private void flushXmlToken(XmlToken xmlToken) {
@@ -267,7 +260,7 @@ public class XML2TXT {
             for (java.util.Map.Entry<Long, String> entry : xmlToken.buffOP.entrySet()) {
                 PrintWriter writer = allEntityOutput.get(entry.getKey());
                 if (writer != null) {
-                    writer.print(entry.getValue());
+                    writer.println(entry.getValue());
                     // Batch disk flush: only every 1000 xml, plus final at close
                     flushBatchCount++;
                     if (flushBatchCount % flipBatch == 0) {
