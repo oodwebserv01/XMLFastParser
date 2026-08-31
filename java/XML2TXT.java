@@ -20,7 +20,7 @@ public class XML2TXT {
     // ============================================================
     private String pathBP = "BluePrint.bp";
     private int numThreads = 1;
-    private int pipeN = 2;
+    private int pipeN = 7;
     private String pathSource = ".";
     private String pathDest = ".";
 
@@ -36,9 +36,11 @@ public class XML2TXT {
     private XmlToken[] allXmlToken;
     private int xmlRead = 0;
     private int xmlReturn = 0;
+    private boolean progressStarted = false;
+    private int progressCount = 0;
 
     // Pipeline config
-    private int C_PipeLineDeep = 2;
+    private int C_PipeLineDeep = 7;
 
     public static void main(String[] args) {
         XML2TXT app = new XML2TXT();
@@ -70,6 +72,11 @@ public class XML2TXT {
                 case "-d":
                     if (i + 1 < args.length) pathDest = args[++i];
                     break;
+                case "-b":
+                    if (i + 1 < args.length) flipBatch = Integer.parseInt(args[++i]);
+                    if (flipBatch < 1) flipBatch = 1;
+                    if (flipBatch > 10000) flipBatch = 10000;
+                    break;
             }
         }
         System.out.println("Config: bp=" + pathBP + ", threads=" + numThreads + ", src=" + pathSource + ", dest=" + pathDest);
@@ -87,6 +94,20 @@ public class XML2TXT {
             System.err.println("FATAL ERROR: " + e.getMessage());
             e.printStackTrace();
             System.exit(1);
+        }
+    }
+
+    private void progressBar(int completed) {
+        if (!progressStarted) {
+            System.out.print("\n[");
+            progressStarted = true;
+        }
+        progressCount = completed;
+        if (progressCount % 20000 == 0 && progressCount > 0) {
+            System.out.print("◼");
+        }
+        if (progressCount >= 1000000 && progressCount > 0) {
+            System.out.print("]\n");
         }
     }
 
@@ -178,7 +199,7 @@ public class XML2TXT {
         XmlToken xmlToken;
 
         // Phase 2a: Fill pipeline with initial tokens
-        System.out.println("Phase 2a: Filling pipeline...");
+        // System.out.println("Phase 2a: Filling pipeline...");
         while (xmlRead < allXmlToken.length && (xml = source.getXml()) != null) {
             allXmlToken[xmlRead].xml = xml;
             parser.pushJob(xml.byteBuffer, xml.size, allXmlToken[xmlRead]);
@@ -187,7 +208,7 @@ public class XML2TXT {
         System.out.println("Initial pipeline fill: " + xmlRead + " jobs");
 
         // Phase 2b: Reuse tokens - process remaining files
-        System.out.println("Phase 2b: Processing files...");
+        // System.out.println("Phase 2b: Processing files...");
         String prevFile = null;
         while ((xml = source.getXml()) != null) {
             // New physical file -> new bar line
@@ -200,6 +221,7 @@ public class XML2TXT {
                 LockSupport.parkNanos(10_000_000L); // 10ms
             }
             xmlReturn++;
+            progressBar(xmlReturn);
 
             // Flush data to output files
             flushXmlToken(xmlToken);
@@ -214,12 +236,13 @@ public class XML2TXT {
         }
 
         // Phase 2c: Drain pipeline - process remaining jobs
-        System.out.println("Phase 2c: Draining pipeline...");
+        // System.out.println("Phase 2c: Draining pipeline...");
         while (xmlReturn < xmlRead) {
             while ((xmlToken = (XmlToken) parser.pullJob()) == null) {
                 LockSupport.parkNanos(10_000_000L); // 10ms
             }
             xmlReturn++;
+            progressBar(xmlReturn);
 
             // Flush data
             flushXmlToken(xmlToken);
@@ -230,8 +253,10 @@ public class XML2TXT {
 
         System.out.println();
         System.out.println("MainLoop complete. Total read: " + xmlRead + ", returned: " + xmlReturn);
+        System.out.print("\n");
     }
 
+    private int flipBatch = 1; // flush batch size (default 1; limit 1-10000)
     private int flushBatchCount = 0;
 
     private void flushXmlToken(XmlToken xmlToken) {
@@ -245,7 +270,7 @@ public class XML2TXT {
                     writer.print(entry.getValue());
                     // Batch disk flush: only every 1000 xml, plus final at close
                     flushBatchCount++;
-                    if (flushBatchCount % 250 == 0) {
+                    if (flushBatchCount % flipBatch == 0) {
                         writer.flush();
                     }
 // bar removed

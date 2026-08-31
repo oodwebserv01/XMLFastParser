@@ -6,7 +6,7 @@
 <ul><li><b>XML2TXT</b> main driver (CLI + pipeline control)</li><li><b>SourceHandler</b> reads .xml / .zip from source folder</li><li><b>xmlBluePrint</b> parser engine (predictive parsing, thread pool, pipeline slots)</li><li><b>EventHandlers / TokenRoot</b> handle entities and columns via registered paths</li></ul>
 <h2>Pipeline</h2>
 <p>Slot count = (2^N)-1: N=2 &rarr; 3, N=3 &rarr; 7, N=4 &rarr; 15, N=5 &rarr; 31.</p>
-<p>Pipeline depth = -N (default 2, max 16). Parser pushes jobs; MainLoop pulls completed tokens; flush writes to PrintWriter every 1000 records.</p>
+<p>Pipeline depth = -N (default 2, max 16). Slots = 2^N-1 (N2=3, N6=63, N8=255). Each +N ~doubles RAM (Factory/Stock). Sweet spot ≈ N6 for -t1; thread increase smaller gain than pipeline depth for IO-bound XML/zip.</p>
 <h2>Output</h2>
 <p>Per-entity PrintWriter writes to entityName_pending.txt; ClosingJob renames to timestamped .txt.</p>
 </body></html>

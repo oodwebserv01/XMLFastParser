@@ -3,7 +3,7 @@
 <h1>XML2TXT Developer Deeper Manual</h1>
 <h2>Parser Tuning</h2>
 <p>Slot count formula: (2^N)-1. N=2 => 3 slots; N=4 => 15; N=5 => 31.</p>
-<p>Set <code>C_PipeLineDeep</code> via <code>-N</code> (2–16, default 2). Higher depth increases pipeline slots but increases memory for tokens and buffer reuse.</p>
+<p>Set <code>C_PipeLineDeep</code> via <code>-N</code> (2–16, default 2). Slots ~2^N-1 (N6=63, N7=127, N8=255). Memory doubles per +N; sweet spot ≈ N6 for single-thread IO-bound workloads; N7/8 may hit RAM/swap.</p>
 <h2>Flush Behavior</h2>
 <p><code>flushXmlToken</code> writes each entry via <code>PrintWriter.println()</code>; disk flush occurs every 1000 records (<code>flushBatchCount % 1000 == 0</code>). This is the main disk-I/O bottleneck.</p>
 <h2>Threading</h2>
