@@ -1,22 +1,74 @@
-TODO_CheckList (XML2TXT.py — Python-only, single-thread, string-FSM)
+wise0136@ubuntu:~/myProject/XMLFastReader$ ./run_1xml.sh
+Config: bp=Lab/BluPrint.bp, threads=1, src=Lab/testdata, dest=output_1
+Parsing blueprint: Lab/BluPrint.bp
+Parsed 2 entities
+Initializing source handler: Lab/testdata
+BootUp complete. Pipeline slots: 15, Threads: 1
+Phase 2a: Filling pipeline...
+Initial pipeline fill: 1 jobs
+Phase 2b: Processing files...
+Phase 2c: Draining pipeline...
+Invoids.inner(26):[ansaction>
+    ]
+java.lang.Throwable: callStack
+	at EventHandlers$4.call(EventHandlers.java:184)
+	at xmlBluePrintNode.callHandlers(xmlBluePrintNode.java:78)
+	at xmlBluePrint$52.call(xmlBluePrint.java:2130)
+	at xmlBluePrint.lambda$run$0(xmlBluePrint.java:263)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+Invoids.inner(26):[tcodeCode>10400]
+java.lang.Throwable: callStack
+	at EventHandlers$4.call(EventHandlers.java:184)
+	at xmlBluePrintNode.callHandlers(xmlBluePrintNode.java:78)
+	at xmlBluePrint$52.call(xmlBluePrint.java:2130)
+	at xmlBluePrint.lambda$run$0(xmlBluePrint.java:263)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+Invoids.inner(26):[Agreement>
+    ]
+java.lang.Throwable: callStack
+	at EventHandlers$4.call(EventHandlers.java:184)
+	at xmlBluePrintNode.callHandlers(xmlBluePrintNode.java:78)
+	at xmlBluePrint$52.call(xmlBluePrint.java:2130)
+	at xmlBluePrint.lambda$run$0(xmlBluePrint.java:263)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+Invoids.inner(26):[eDelivery/>
+    ]
+java.lang.Throwable: callStack
+	at EventHandlers$4.call(EventHandlers.java:184)
+	at xmlBluePrintNode.callHandlers(xmlBluePrintNode.java:78)
+	at xmlBluePrint$52.call(xmlBluePrint.java:2130)
+	at xmlBluePrint.lambda$run$0(xmlBluePrint.java:263)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+Invoids.inner(26):[ettlement>
+    ]
+java.lang.Throwable: callStack
+	at EventHandlers$4.call(EventHandlers.java:184)
+	at xmlBluePrintNode.callHandlers(xmlBluePrintNode.java:78)
+	at xmlBluePrint$52.call(xmlBluePrint.java:2130)
+	at xmlBluePrint.lambda$run$0(xmlBluePrint.java:263)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+Invoids.inner(26):[eLineItem>
+    ]
+java.lang.Throwable: callStack
+	at EventHandlers$4.call(EventHandlers.java:184)
+	at xmlBluePrintNode.callHandlers(xmlBluePrintNode.java:78)
+	at xmlBluePrint$52.call(xmlBluePrint.java:2130)
+	at xmlBluePrint.lambda$run$0(xmlBluePrint.java:263)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+Invoids.inner(26):[eLineItem>
+  ]
+java.lang.Throwable: callStack
+	at EventHandlers$4.call(EventHandlers.java:184)
+	at xmlBluePrintNode.callHandlers(xmlBluePrintNode.java:78)
+	at xmlBluePrint$52.call(xmlBluePrint.java:2130)
+	at xmlBluePrint.lambda$run$0(xmlBluePrint.java:263)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
 
-[ ] 1. อ่าน GOAL_FOR_XML2TXT_PY_VERSION.md (done)
-[ ] 2. ยืนยัน /java/ ไม่แตะ; compiled/ แยก
-[ ] 3. สร้าง / compiled/ ถ้ายังไม่มี (ไม่ต้องสร้าง jar ใหม่)
-[ ] 4. ออกแบบ string-FSM: สถานะ S_TAG / S_ATTR / S_VALUE / S_CLOSE
-[ ] 5. ออกแบบ predictive jump: ข้ามไปตำแหน่ง tag ตาม .bp paths
-[ ] 6. เขียน python/XML2TXT.py (inline) — replace stub:
-    [ ] 6.1 parse_args (-p -s -d -t)
-    [ ] 6.2 load_bp (.bp -> entity + paths)
-    [ ] 6.3 boot_up (mkdir dest)
-    [ ] 6.4 main_loop:
-        [ ] 6.4.1 list sources (.xml, .zip) — ไม่ลง subfolder
-        [ ] 6.4.2 ถ้า .zip -> unzip nelist -> .xml แต่ละอัน
-        [ ] 6.4.3 อ่าน .xml เป็น str
-        [ ] 6.4.4 FSM + predictive: ดึงค่าตาม paths -> เก็บผล
-    [ ] 6.5 closing_job: rename _pending -> timestamp .txt
-[ ] 7. ตรวจ .bp output: [entityName]_pending.txt -> rename
-[ ] 8. ตรวจ garbage / ขยะ: ดูว่า .txt มีข้อมูลถูกต้องตาม paths
-[ ] 9. ทดสอบ 1 xml -> ผ่าน
-[ ] 10. ทดสอบ 5 xml / zip -> ผ่าน (ไม่ hang, ไม่มี garbage)
-[ ] 11. สรุป: /java ไม่แตะ, compiled/ แยก, ไม่มี JVM
+MainLoop complete. Total read: 1, returned: 1
+ClosingJob: Finalizing...
+Renamed: Invoids_pending.txt -> Invoids_20260831155534.txt
+Renamed: Items_pending.txt -> Items_20260831155534.txt
+ClosingJob complete.
+-rw-rw-r-- 1 wise0136 wise0136 802 ส.ค.  31 15:45 output_1/Invoids_20260831154553.txt
+-rw-rw-r-- 1 wise0136 wise0136 802 ส.ค.  31 15:48 output_1/Invoids_20260831154824.txt
+wise0136@ubuntu:~/myProject/XMLFastReader$

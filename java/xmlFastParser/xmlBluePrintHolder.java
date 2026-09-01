@@ -120,7 +120,7 @@ public class xmlBluePrintHolder {
         if (!rootClosed && bluePrint.rootHandler != null) {
             bluePrint.rootHandler.call(bluePrint.rootToken, this,
                     xmlBluePrint.EV_CLOSE_TAG, 0, 0, 0, 0);
-        }        
+        }
         rootClosed = true;
 
         if (0!=jobsInQue() && !bluePrint.forceShutdown) {

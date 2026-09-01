@@ -33,7 +33,6 @@ public class xmlBluePrintNode {
     public boolean isTarget;
 
     // Whether this node is a CHILD of a target (registered under a target path)
-    public boolean isChildOfTarget;
 
     public CELL HD_CLOSINGTAG;
 
@@ -89,41 +88,27 @@ public class xmlBluePrintNode {
         this.tagHash = 0;
         this.parent = null;
         this.isTarget = false;
-        this.isChildOfTarget = false;
         this.HD_CLOSINGTAG = null;
     }
 
     /**
      * Constructor for path nodes.
      */
-    public xmlBluePrintNode(xmlBluePrintNode parent,
-                            long tagHash, xmlBluePrintCall handler, Object idToken,
-                            boolean isTarget, boolean isChildOfTarget, CELL hd_close) {
+    public xmlBluePrintNode(xmlBluePrintNode parent,long tagHash) {
         this.parent = parent;
         this.tagHash = tagHash;
-        this.isTarget = isTarget;
-        this.isChildOfTarget = isChildOfTarget;
-        this.HD_CLOSINGTAG = hd_close;
-        if (handler != null) {
-            handlers.add(new HandlerToken(handler, idToken));
-        }
+        this.isTarget = false;
+        this.HD_CLOSINGTAG = xmlBluePrint.HD_CLOSINGTAG;
     }
 
     /**
      * Add or get child node.
      */
-    public xmlBluePrintNode getOrCreateChild(
-                                              long tagHash, xmlBluePrintCall handler,
-                                              Object idToken, boolean isTarget,
-                                              boolean isChildOfTarget, CELL hd_close) {
+    public xmlBluePrintNode getOrCreateChild(long tagHash) {
         xmlBluePrintNode child = children.get(tagHash);
         if (child == null) {
-            child = new xmlBluePrintNode(this, tagHash,
-                                         handler, idToken, isTarget, isChildOfTarget, hd_close);
+            child = new xmlBluePrintNode(this, tagHash);
             children.put(tagHash, child);
-        } else if (handler != null) {
-            // Node exists, add handler to existing node
-            child.addHandler(handler, idToken);
         }
         return child;
     }
