@@ -1,0 +1,40 @@
+# XMLFastParser & Xml2Txt
+
+> High-performance Java XML parsing library and CLI text conversion tool. Designed for extreme throughput using Finite State Machine (FSM), TreeGraph hierarchy, statistical speculative skipping, and fault-tolerant streaming.
+
+## Project Overview
+
+- Repository: https://github.com/oodwebserv01/XMLFastParser
+- License: MIT License
+- Language: Java (JDK 8+)
+- Architecture: Single-threaded/Multithreaded FSM-based XML Parsing
+
+## Key Components
+
+1. **xmlFastParser (Core Library)**
+   - Custom state machine bypassing heavy DOM/SAX overhead.
+   - TreeGraph model for light structural memory representation.
+   - Statistical speculative skipping to fast-forward uninteresting XML blocks.
+   - Fault-tolerant parser capable of recovering from malformed or incomplete XML tags.
+
+2. **Xml2Txt (Application)**
+   - Command-line tool to strip XML tags and flatten hierarchy into structured plain text.
+   - Direct ZIP/Archive streaming support without temporary disk extraction.
+
+## Performance Benchmarks
+
+- **Dataset**: 10 GB Raw XML Data (compressed inside 5 GB ZIP archive).
+- **Processing Time**: ~165 seconds (single-threaded execution).
+- **Environment**: Standard JVM settings without native JNI bindings.
+
+## Repository Structure
+
+- `java/xmlFastParser/`: Source code for the core XML parser library.
+- `java/Xml2Txt/`: Source code for the CLI converter application.
+- `README.md`: Setup instructions, technical details, and full API usage.
+- `LICENSE`: Open-source MIT License.
+
+## Usage Guidelines for AI Agents
+
+- Refer to `java/xmlFastParser/` when analyzing parsing algorithms, FSM state handling, or memory-skipping mechanics.
+- Refer to `java/Xml2Txt/` when evaluating streaming file input/output, ZIP entry decompression, or CLI parsing logic.
