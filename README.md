@@ -59,18 +59,39 @@ import xmlFastParser.handler.ElementHandler;
 
 public class Main {
     public static void main(String[] args) {
-        XmlFastReader reader = new XmlFastReader();
+        // Create parser
+        parser = new xmlBluePrint();
+
+        // Tune parser
+        parser.setPipeLineDeep(C_PipeLineDeep);
+
+        // Set thread count
+        parser.setThreadCount(numThreads);
         
-        // Register a callback handler for a target XML tag
-        reader.registerHandler("TargetTag", new ElementHandler() {
-            @Override
-            public void onElementFound(String tagName, String content) {
-                System.out.println("Found " + tagName + ": " + content);
-            }
-        });
+        // Register handlers with parser
+        parser.rootRegist(EventHandlers.HD_Root, tokenRoot);
+        parser.errorRegist(EventHandlers.HD_Error, tokenRoot);
+        parser.regist(strXmlPath_1, EventHandler_1, objToken_1);
+        parser.regist(strXmlPath_2, EventHandler_2, objToken_2);
+        parser.regist(strXmlPath_3, EventHandler_3, objToken_3);
+        .
+        .
+        parser.regist(strXmlPath_N, EventHandler_N, objToken_N);
 
         // Parse an XML file or stream
-        reader.parse("data.xml");
+        parser.run();
+
+        // push job to parser 
+        parser.pushJob(xml.byteBuffer, xml.size, xmlToken);
+
+        // Wait for completed job
+        while ((xmlToken = (XmlToken) parser.pullJob()) == null) {
+            LockSupport.parkNanos(200_000L); // 0.2 ms
+        }
+
+        // Flush data to output files
+        flushXmlToken(xmlToken);
+      
     }
 }
 Contributing
