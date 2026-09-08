@@ -81,6 +81,9 @@ public class Main {
         // Parse an XML file or stream
         parser.run();
 
+        // << one to many threads interface >>
+        // use pushJob and pullJob to easy comunicate to multitheads parser
+
         // push job to parser 
         parser.pushJob(xml.byteBuffer, xml.size, xmlToken);
 
