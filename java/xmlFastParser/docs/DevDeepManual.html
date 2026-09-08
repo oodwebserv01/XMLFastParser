@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta http-equiv="content-type" content="text/html; charset=utf-8"/>
+	<title>DevDeep — Source + Step-by-Step (Night Study Edition)</title>
+	<meta name="generator" content="LibreOffice 26.2.5.2 (Linux)"/>
+	<meta name="created" content="00:00:00"/>
+	<meta name="changed" content="2026-09-08T13:47:09.524210286"/>
+	<meta name="" content=""/>
+	<style type="text/css">
+		@page { size: 21cm 29.7cm; margin-left: 2cm; margin-right: 1cm; margin-top: 1cm; margin-bottom: 1cm }
+		p { line-height: 115%; font-family: "Inter", "system-ui", sans-serif; margin-bottom: 0.25cm; background: transparent }
+		h2 { font-size: 18pt; margin-top: 0.35cm; margin-bottom: 0.21cm; border-top: none; border-bottom: none; border-left: 3.00pt solid #000000; border-right: none; padding-top: 0cm; padding-bottom: 0cm; padding-left: 0.05cm; padding-right: 0cm; font-family: "Instrument Serif", serif; font-weight: bold; line-height: 170%; background: transparent; page-break-after: avoid }
+		h3 { margin-top: 0.25cm; margin-bottom: 0.21cm; line-height: 170%; background: transparent; page-break-after: avoid }
+		h3.western { font-weight: bold; font-size: 14pt; font-family: "Liberation Serif", serif }
+		h3.cjk { font-weight: bold; font-size: 14pt; font-family: "Noto Serif CJK SC" }
+		h3.ctl { font-weight: bold; font-family: "Kinnari"; font-size: 14pt }
+		pre { line-height: 170%; font-size: 10pt; font-family: "Fira Code", monospace; border: none; padding: 0cm; color: #dce6f1; background: transparent }
+		h1 { margin-bottom: 0.21cm; line-height: 170%; background: transparent; page-break-after: avoid }
+		h1.western { font-weight: bold; font-size: 24pt; font-family: "Liberation Serif", serif }
+		h1.cjk { font-weight: bold; font-size: 24pt; font-family: "Noto Serif CJK SC" }
+		h1.ctl { font-weight: bold; font-family: "Kinnari"; font-size: 24pt }
+		code { background: #eeeeee }
+		code.western { font-family: "Liberation Mono", monospace }
+		code.cjk { font-family: "Noto Sans Mono CJK SC", monospace }
+		code.ctl { font-family: "Liberation Mono", monospace }
+		strong { font-weight: bold }
+		a:link { color: #000080; text-decoration: underline }
+		a:visited { color: #800000; text-decoration: underline }
+	</style>
+</head>
+<body lang="th-TH" link="#000080" vlink="#800000" dir="ltr"><h1 class="ctl">
+<font face="Liberation Serif, serif"><span lang="en-US">DevDeep —
+Source + Step-by-Step</span></font></h1>
+<p><span lang="en-US">Night-study edition • parser engine • every
+line explained • rebuild without source</span></p>
+<p><span lang="en-US">Thread: xmlFastParser • File:
+xmlBluePrint.java (hash / predictive / pipeline) • Edited:
+case-normalized uppercase</span></p>
+<h2><span lang="en-US">What This Page Is</span></h2>
+<p><span lang="en-US">Not a quick reference. Not a cheat sheet. A
+<strong>slow, comfortable, fully explained</strong> walkthrough of
+the parser's deepest mechanics: how the hash turns bytes into
+numbers, how prediction tries to skip bytes, how pipeline slots reuse
+objects, and how the flush picks its rhythm. Read it when the house
+is quiet.</span></p>
+<p><span style="display: inline-block; border-top: none; border-bottom: none; border-left: 3.00pt solid #000000; border-right: none; padding-top: 0cm; padding-bottom: 0cm; padding-left: 0.05cm; padding-right: 0cm"><span lang="en-US"><strong><span style="background: #fdf6e3">Context
+from earlier session:</span></strong><span style="background: #fdf6e3">
+We changed </span><code class="western"><span style="background: #fdf6e3">hash()</span></code><span style="background: #fdf6e3">
+to normalize </span><code class="western"><span style="background: #fdf6e3">a-z
+→ A-Z</span></code><span style="background: #fdf6e3">
+(case-insensitive), set pipeline to </span><code class="western"><span style="background: #fdf6e3">N</span></code><span style="background: #fdf6e3">
+parameter via </span><code class="western"><span style="background: #fdf6e3">-N</span></code><span style="background: #fdf6e3">
+(slots = (2^N)-1), and tuned flush to </span><code class="western"><span style="background: #fdf6e3">250</span></code><span style="background: #fdf6e3">
+rows (sweet spot between syscall overhead and pipeline stall). This
+page assumes those settings. </span></span></span>
+</p>
+<h2><span lang="en-US">Part I — The Hash (FNV-1a, Byte-by-Byte)</span></h2>
+<p><span lang="en-US">The parser does not use a library hash. It
+implements FNV-1a directly over raw bytes so it can skip prefixes and
+namespaces precisely.</span></p>
+<h3 class="ctl"><font face="Liberation Serif, serif"><span lang="en-US">Source
+— Exact Block (from xmlBluePrint.java)</span></font></h3>
+<pre><span lang="en-US"><code class="western"><font color="#333333">public static final long hash(byte[] buff, int begin, int end) { // FNV_1a</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">  long h = 0xCBF29CE484222325L; // FNV offset basis</font></code></span>
+
+<span lang="en-US"><code class="western"><font color="#333333">  // Find start of local name (skip prefix or Clark notation namespace)</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">  int hashStart = begin;</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">  for (int i = begin; i &lt; end; i++) {</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">     byte v = buff[i];</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">     // Normalize to uppercase for case-insensitive matching</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">     if (v &gt;= 'a' &amp;&amp; v &lt;= 'z') v = (byte)(v - 32);</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">     if (v == '}') {</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">        // Clark notation: {namespace}localName - start hashing after '}'</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">        hashStart = i + 1;</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">        break;</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">     }</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">  }</font></code></span></pre><p style="margin-bottom: 0cm">
+<span style="display: inline-block; border: none; padding: 0cm"><font color="#ffffff"><font face="Instrument Serif, serif"><span lang="en-US"><b>1</b></span></font></font></span></p>
+<p style="margin-bottom: 0cm"><span lang="en-US"><strong>Offset
+basis.</strong> Every FNV-1a starts with <code class="western">0xCBF29CE484222325</code>.
+This is not arbitrary — it is the standard 64-bit offset basis for
+FNV-1a. Changing it breaks all existing hashes.</span></p>
+<p style="margin-bottom: 0cm"><span style="display: inline-block; border: none; padding: 0cm"><font color="#ffffff"><font face="Instrument Serif, serif"><span lang="en-US"><b>2</b></span></font></font></span></p>
+<p style="margin-bottom: 0cm"><span lang="en-US"><strong>Find local
+name start.</strong> We scan from <code class="western">begin</code>
+to <code class="western">end</code>. If we see <code class="western">}</code>,
+we know Clark notation <code class="western">{uri}local</code> is
+used; we skip to after <code class="western">}</code>. We also
+implicitly skip prefix before <code class="western">:</code> because
+only bytes after the last prefix separator matter for local name.</span></p>
+<p style="margin-bottom: 0cm"><span style="display: inline-block; border: none; padding: 0cm"><font color="#ffffff"><font face="Instrument Serif, serif"><span lang="en-US"><b>3</b></span></font></font></span></p>
+<p style="margin-bottom: 0cm"><span lang="en-US"><strong>Case
+normalization.</strong> Before using the byte, if it is lowercase
+<code class="western">a-z</code>, subtract 32 (ASCII distance to
+uppercase). This makes <code class="western">/a/b</code> and <code class="western">/A/B</code>
+identical — the edit we made.</span></p>
+<p><span style="display: inline-block; border-top: none; border-bottom: none; border-left: 3.00pt solid #000000; border-right: none; padding-top: 0cm; padding-bottom: 0cm; padding-left: 0.05cm; padding-right: 0cm"><span lang="en-US"><strong><span style="background: #fdf6e3">Why
+byte-level?</span></strong><span style="background: #fdf6e3"> The
+parser reads raw </span><code class="western"><span style="background: #fdf6e3">byte[]</span></code><span style="background: #fdf6e3">
+from </span><code class="western"><span style="background: #fdf6e3">XmlPackage</span></code><span style="background: #fdf6e3">.
+It never converts to </span><code class="western"><span style="background: #fdf6e3">String</span></code><span style="background: #fdf6e3">
+during parsing because that allocates objects and slows the loop. The
+hash operates directly on those bytes. </span></span></span>
+</p>
+<h2><span lang="en-US">Part II — The Loop That Consumes Bytes</span></h2>
+<p><span lang="en-US">After finding <code class="western">hashStart</code>,
+the loop continues hashing every byte through <code class="western">end</code>
+using FNV-1a multiply+xor. This produces a 64-bit <code class="western">long</code>
+that is used as a key in <code class="western">HashMap&lt;Long, ...&gt;</code>
+for handler lookup.</span></p>
+<h3 class="ctl"><font face="Liberation Serif, serif"><span lang="en-US">Step-by-Step
+(Mental Model)</span></font></h3>
+<pre><span lang="en-US"><code class="western">h = h ^ v;          // XOR byte into running hash</code></span>
+<span lang="en-US"><code class="western">h = h * 0x100000001B3L;  // Multiply by FNV prime</code></span>
+<span lang="en-US"><code class="western">// Repeat for each byte from hashStart to end</code></span></pre><p>
+<span style="display: inline-block; border-top: none; border-bottom: none; border-left: 3.00pt solid #e63946; border-right: none; padding-top: 0cm; padding-bottom: 0cm; padding-left: 0.05cm; padding-right: 0cm"><span lang="en-US"><strong><font color="#cbd5e1"><span style="background: #111827">Never
+forget the prime.</span></font></strong><font color="#cbd5e1"><span style="background: #111827">
+The prime </span></font><code class="western"><font color="#cbd5e1"><span style="background: #111827">0x100000001B3L</span></font></code><font color="#cbd5e1"><span style="background: #111827">
+is part of FNV-1a. If you replace it with a different prime, you get
+a different hash family — all registrations break. The parser
+relies on consistent hash output. </span></font></span></span>
+</p>
+<h2><span lang="en-US">Part III — Predictive Parsing (The Speed
+Trick)</span></h2>
+<p><span lang="en-US">Instead of scanning every byte from the start
+of a tag, the parser tries to <strong>jump</strong> to where it
+thinks the tag should be, based on previous patterns.</span></p>
+<h3 class="ctl"><font face="Liberation Serif, serif"><span lang="en-US">The
+Log</span></font></h3>
+<p><span lang="en-US">Inside the holder there is a <code class="western">predictedLog</code>
+— essentially a history of tag hashes at positions. When parsing is
+active:</span></p>
+<p><br/>
+<br/>
+
+</p>
+<p><br/>
+<br/>
+
+</p>
+<pre><span lang="en-US"><code class="western"><font color="#333333">// Activation (simplified from source patterns)</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">bestMatch = findBestPredictedLogHolder();</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">if (bestMatch != null) {</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">  predictedIndex = bestMatch.bestIndex;</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">  predictedLog = bestMatch.log;</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">  predictionActive = true;</font></code></span>
+<span lang="en-US"><code class="western">}</code></span></pre><p style="margin-bottom: 0cm">
+<span style="display: inline-block; border: none; padding: 0cm"><font color="#ffffff"><font face="Instrument Serif, serif"><span lang="en-US"><b>1</b></span></font></font></span></p>
+<p style="margin-bottom: 0cm"><span lang="en-US"><strong>Log search.</strong>
+The parser looks at its history for the best match near current
+position.</span></p>
+<p style="margin-bottom: 0cm"><span style="display: inline-block; border: none; padding: 0cm"><font color="#ffffff"><font face="Instrument Serif, serif"><span lang="en-US"><b>2</b></span></font></font></span></p>
+<p style="margin-bottom: 0cm"><span lang="en-US"><strong>Set index.</strong>
+<code class="western">predictedIndex</code> points to which log entry
+to verify.</span></p>
+<p style="margin-bottom: 0cm"><span style="display: inline-block; border: none; padding: 0cm"><font color="#ffffff"><font face="Instrument Serif, serif"><span lang="en-US"><b>3</b></span></font></font></span></p>
+<p><span lang="en-US"><strong>Jump.</strong> Pointer moves to
+predicted offset.</span></p>
+<h3 class="ctl"><font face="Liberation Serif, serif"><span lang="en-US">If
+It Works — Success</span></font></h3>
+<pre><span lang="en-US"><code class="western"><font color="#333333">// Verification matches expected hash</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">holder.pointer = predictedOffset;  // jump succeeded</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">// Continue parsing from new position</font></code></span></pre><h3 class="ctl">
+<font face="Liberation Serif, serif"><span lang="en-US">If It Fails —
+Restore</span></font></h3>
+<pre><span lang="en-US"><code class="western"><font color="#333333">// Hash mismatch at predicted location</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">originalPointer = holder.pointer;   // save before jump</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">// ... jump fails ...</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">holder.pointer = originalPointer;   // restore</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">predictionActive = false;          // disable for this segment</font></code></span></pre><p>
+<span style="display: inline-block; border-top: none; border-bottom: none; border-left: 3.00pt solid #000000; border-right: none; padding-top: 0cm; padding-bottom: 0cm; padding-left: 0.05cm; padding-right: 0cm"><span lang="en-US"><strong><span style="background: #fdf6e3">Why
+restore exactly to originalPointer?</span></strong><span style="background: #fdf6e3">
+Because the parser may have partially advanced state (currentNode,
+skipDepth) during the jump attempt. Restoring pointer alone is not
+enough — but in the source pattern, the state is rebuilt after
+restoration because parsing restarts from the original byte sequence.
+The key insight is </span><strong><span style="background: #fdf6e3">no
+partial state leaks</span></strong><span style="background: #fdf6e3">.
+</span></span></span>
+</p>
+<h2><span lang="en-US">Part IV — Pipeline Slot Reuse (Memory
+Efficiency)</span></h2>
+<p><span lang="en-US">Instead of allocating new <code class="western">XmlToken</code>
+objects per file, the MainLoop reuses an array:</span></p>
+<p><br/>
+<br/>
+
+</p>
+<p><br/>
+<br/>
+
+</p>
+<p><br/>
+<br/>
+
+</p>
+<pre><span lang="en-US"><code class="western"><font color="#333333">allXmlToken = new XmlToken[totalSizePipeLine];  // totalSizePipeLine = (2^N)-1</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">for (int i = 0; i &lt; totalSizePipeLine; i++) {</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">  allXmlToken[i] = new XmlToken();  // allocate once</font></code></span>
+<span lang="en-US"><code class="western">}</code></span></pre><p>
+<span lang="en-US">Then in loop:</span></p>
+<pre><span lang="en-US"><code class="western"><font color="#333333">// Pull completed token</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">XmlToken xmlToken = (XmlToken) parser.pullJob();</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">// Flush</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">flushXmlToken(xmlToken);</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">// Reuse with new XML</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">xmlToken.xml = xml;</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">parser.pushJob(xml.byteBuffer, xml.size, xmlToken);</font></code></span></pre><p>
+<span style="display: inline-block; border-top: none; border-bottom: none; border-left: 3.00pt solid #e63946; border-right: none; padding-top: 0cm; padding-bottom: 0cm; padding-left: 0.05cm; padding-right: 0cm"><span lang="en-US"><strong><font color="#cbd5e1"><span style="background: #111827">Trick:</span></font></strong><font color="#cbd5e1"><span style="background: #111827">
+By clearing </span></font><code class="western"><font color="#cbd5e1"><span style="background: #111827">buffOP</span></font></code><font color="#cbd5e1"><span style="background: #111827">
+and </span></font><code class="western"><font color="#cbd5e1"><span style="background: #111827">msgError</span></font></code><font color="#cbd5e1"><span style="background: #111827">
+after flush (not shown but implied), the same object can carry new
+data without garbage collection pressure. This is essential for
+processing 1,079,865 jobs (as observed in test).</span></font></span></span></p>
+<h2><span lang="en-US">Part V — Flush Arithmetic (Why 250?)</span></h2>
+<p><span lang="en-US">The flush is a global counter (<code class="western">flushBatchCount</code>)
+incremented every record across all entities:</span></p>
+<pre><span lang="en-US"><code class="western"><font color="#333333">flushBatchCount++;</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">if (flushBatchCount % 250 == 0) {</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">  writer.flush();  // sync to disk</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">}</font></code></span></pre><p style="margin-bottom: 0cm">
+<span style="display: inline-block; border: none; padding: 0cm"><font color="#ffffff"><font face="Instrument Serif, serif"><span lang="en-US"><b>1</b></span></font></font></span></p>
+<p style="margin-bottom: 0cm"><span lang="en-US"><strong>Every record
+writes.</strong> <code class="western">writer.println()</code>
+buffers in memory; not all go to disk immediately.</span></p>
+<p style="margin-bottom: 0cm"><span style="display: inline-block; border: none; padding: 0cm"><font color="#ffffff"><font face="Instrument Serif, serif"><span lang="en-US"><b>2</b></span></font></font></span></p>
+<p style="margin-bottom: 0cm"><span lang="en-US"><strong>Every 250:
+sync.</strong> <code class="western">flush()</code> forces OS to
+write buffer to disk.</span></p>
+<p style="margin-bottom: 0cm"><span style="display: inline-block; border: none; padding: 0cm"><font color="#ffffff"><font face="Instrument Serif, serif"><span lang="en-US"><b>3</b></span></font></font></span></p>
+<p style="margin-bottom: 0cm"><span lang="en-US"><strong>Sweet spot.</strong>
+250 balances overhead (too frequent = syscall cost) with stall (too
+rare = parser waits for drain).</span></p>
+<p><span lang="en-US"><strong>Measured result:</strong> 250 → ~274
+sec (fastest); 50 → ~368 sec (too many syncs); 10,000 → ~358+ sec
+(stall). The disk rate balances near 200-300 row batches.</span></p>
+<h2><span lang="en-US">Part VI — ClosingJob Rename Sequence</span></h2>
+<p><span lang="en-US">After all output is written:</span></p>
+<pre><span lang="en-US"><code class="western"><font color="#333333">String timestamp = new SimpleDateFormat(&quot;yyyyMMddHHmmss&quot;).format(new Date());</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">for (TokenEntity entity : allTokenEntity.values()) {</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">  File oldFile = new File(destDir, entity.fileName + &quot;_pending.txt&quot;);</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">  File newFile = new File(destDir, entity.fileName + &quot;_&quot; + timestamp + &quot;.txt&quot;);</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">  if (oldFile.exists()) oldFile.renameTo(newFile);</font></code></span>
+<span lang="en-US"><code class="western"><font color="#333333">}</font></code></span></pre><p style="margin-bottom: 0cm">
+<span style="display: inline-block; border-top: none; border-bottom: none; border-left: 3.00pt solid #000000; border-right: none; padding-top: 0cm; padding-bottom: 0cm; padding-left: 0.05cm; padding-right: 0cm"><span lang="en-US"><strong><span style="background: #fdf6e3">Why
+_pending first?</span></strong><span style="background: #fdf6e3"> If
+program crashes mid-run, you still have partial output with a clear
+pending name. After successful close, rename gives final timestamped
+file — atomic-ish at OS level (rename is usually atomic on same
+filesystem).</span></span></span></p>
+<hr/>
+
+<h2><span lang="en-US">Summary — What You Can Rebuild From This</span></h2>
+<p><span style="display: inline-block; border-top: 1px solid #dddddd; border-bottom: 1px solid #dddddd; border-left: 1px solid #dddddd; border-right: none; padding-top: 0.05cm; padding-bottom: 0.05cm; padding-left: 0.05cm; padding-right: 0cm"><span lang="en-US"><strong><span style="background: #ffffff">Hash:</span></strong><span style="background: #ffffff">
+FNV-1a + namespace skip + uppercase normalize.</span></span></span></p>
+<p><span style="display: inline-block; border-top: 1px solid #dddddd; border-bottom: 1px solid #dddddd; border-left: 1px solid #dddddd; border-right: none; padding-top: 0.05cm; padding-bottom: 0.05cm; padding-left: 0.05cm; padding-right: 0cm"><span lang="en-US"><strong><span style="background: #ffffff">Parse
+loop:</span></strong><span style="background: #ffffff"> Byte FSM with
+state transitions; predictive jump + originalPointer restore.</span></span></span></p>
+<p><span style="display: inline-block; border-top: 1px solid #dddddd; border-bottom: 1px solid #dddddd; border-left: 1px solid #dddddd; border-right: none; padding-top: 0.05cm; padding-bottom: 0.05cm; padding-left: 0.05cm; padding-right: 0cm"><span lang="en-US"><strong><span style="background: #ffffff">Pipeline:</span></strong><span style="background: #ffffff">
+(2^N)-1 slots; reuse XmlToken array; push/pull.</span></span></span></p>
+<p><span style="display: inline-block; border-top: 1px solid #dddddd; border-bottom: 1px solid #dddddd; border-left: 1px solid #dddddd; border-right: none; padding-top: 0.05cm; padding-bottom: 0.05cm; padding-left: 0.05cm; padding-right: 0cm"><span lang="en-US"><strong><span style="background: #ffffff">Flush:</span></strong><span style="background: #ffffff">
+Global counter at 250; writer.println + flush.</span></span></span></p>
+<p><span style="display: inline-block; border-top: 1px solid #dddddd; border-bottom: 1px solid #dddddd; border-left: 1px solid #dddddd; border-right: none; padding-top: 0.05cm; padding-bottom: 0.05cm; padding-left: 0.05cm; padding-right: 0cm"><span lang="en-US"><strong><span style="background: #ffffff">Output:</span></strong><span style="background: #ffffff">
+Per-entity PrintWriter; _pending → rename at close.</span></span></span></p>
+<p><span style="display: inline-block; border-top: 1px solid #dddddd; border-bottom: 1px solid #dddddd; border-left: 1px solid #dddddd; border-right: none; padding-top: 0.05cm; padding-bottom: 0.05cm; padding-left: 0.05cm; padding-right: 0cm"><span lang="en-US"><strong><span style="background: #ffffff">Bluepr</span></strong><span style="background: #ffffff">int:
+BPParser produces TokenEntity / TokenColumn; register by path hash.</span></span></span></p>
+<p align="center"><font color="#777777"><span lang="en-US"><i>Sleep
+well. Read this when the room is quiet.</i></span></font></p>
+</body>
+</html>

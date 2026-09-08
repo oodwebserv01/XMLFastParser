@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta http-equiv="content-type" content="text/html; charset=utf-8"/>
+	<title>XML2TXT User Manual</title>
+	<meta name="generator" content="LibreOffice 26.2.5.2 (Linux)"/>
+	<meta name="created" content="00:00:00"/>
+	<meta name="changed" content="2026-09-08T12:08:04.327293397"/>
+	<meta name="" content=""/>
+	<meta name="created" content="00:00:00">
+	<style type="text/css">
+		@page { size: 21cm 29.7cm; margin-left: 2cm; margin-right: 1cm; margin-top: 1cm; margin-bottom: 1cm }
+		p { background: transparent; margin-bottom: 0.25cm; line-height: 115%; background: transparent }
+		h1 { margin-bottom: 0.21cm; background: transparent; background: transparent; page-break-after: avoid }
+		h1.western { font-weight: bold; font-size: 24pt; font-family: "Liberation Serif", serif }
+		h1.cjk { font-weight: bold; font-size: 24pt; font-family: "Noto Serif CJK SC" }
+		h1.ctl { font-weight: bold; font-family: "Kinnari"; font-size: 24pt }
+		h2 { margin-top: 0.35cm; margin-bottom: 0.21cm; background: transparent; background: transparent; page-break-after: avoid }
+		h2.western { font-weight: bold; font-size: 18pt; font-family: "Liberation Serif", serif }
+		h2.cjk { font-weight: bold; font-size: 18pt; font-family: "Noto Serif CJK SC" }
+		h2.ctl { font-weight: bold; font-family: "Kinnari"; font-size: 18pt }
+		pre { background: transparent; background: transparent }
+		pre.western { font-family: "Liberation Mono", monospace; font-size: 10pt }
+		pre.cjk { font-family: "Noto Sans Mono CJK SC", monospace; font-size: 10pt }
+		pre.ctl { font-family: "Liberation Mono", monospace; font-size: 10pt }
+		td p { background: transparent; widows: 0; orphans: 0; background: transparent }
+		th p { background: transparent; widows: 0; font-weight: bold; text-align: center; orphans: 0; background: transparent }
+		code.western { font-family: "Liberation Mono", monospace }
+		code.cjk { font-family: "Noto Sans Mono CJK SC", monospace }
+		code.ctl { font-family: "Liberation Mono", monospace }
+		a:link { color: #000080; text-decoration: underline }
+		a:visited { color: #800000; text-decoration: underline }
+	</style>
+</head>
+<body lang="th-TH" link="#000080" vlink="#800000" dir="ltr"><h1 class="ctl">
+<font face="Liberation Serif, serif"><span lang="en-US">XML2TXT User
+Manual</span></font></h1>
+<p><font face="Liberation Serif, serif"><span lang="en-US">Usage:
+java -cp compiled XML2TXT -p &lt;bp&gt; -s &lt;src&gt; -d &lt;dest&gt;
+[-t threads] [-N 7] [-b 1]</span></font></p>
+<ul>
+	<li><p style="margin-bottom: 0cm"><font face="Liberation Serif, serif"><span lang="en-US"><b>-p</b>
+	blueprint (.bp)</span></font></p></li>
+	<li><p style="margin-bottom: 0cm"><font face="Liberation Serif, serif"><span lang="en-US"><b>-s</b>
+	source folder</span></font></p></li>
+	<li><p style="margin-bottom: 0cm"><font face="Liberation Serif, serif"><span lang="en-US"><b>-d</b>
+	destination folder</span></font></p></li>
+	<li><p style="margin-bottom: 0cm"><font face="Liberation Serif, serif"><span lang="en-US"><b>-t</b>
+	parser threads (default 1)</span></font></p></li>
+	<li><p style="margin-bottom: 0cm"><font face="Liberation Serif, serif"><span lang="en-US"><b>-n</b>
+	pipeline depth 2-16 (default <b>7</b>, benchmark used 6)</span></font></p></li>
+	<li><p><a name="__DdeLink__0_1753278096"></a><font face="Liberation Serif, serif"><span lang="en-US"><b>-b</b>
+	flush batch 1-10000 (default <b>1</b>; benchmark used 4)</span></font></p></li>
+</ul>
+<p><font face="Liberation Serif, serif"><span lang="en-US">Output
+naming: [entityName]_ThreadNo_YYYYMMDDHHmmss.txt. Pending file
+written first, renamed on ClosingJob.</span></font></p>
+<h2 class="ctl"><font face="Liberation Serif, serif"><span lang="en-US">Benchmark
+— 1,000,000 XML (N6 b4 t1)</span></font></h2>
+<p align="center" style="border: none; padding: 0cm; background: #2c3e50">
+<font color="#ffffff"><font face="Liberation Serif, serif"><span lang="en-US"><b>TIME
+~165</b> <b>sec</b> &nbsp;|&nbsp; 1M XML (10 GB)&nbsp;|&nbsp; N6 ·
+b4 · t1 &nbsp;|&nbsp; ~520 <b>M XML (5.2 TB)</b> / 24h </span></font></font>
+</p>
+<h2 class="ctl"><font face="Liberation Serif, serif"><span lang="en-US">Blueprint
+(.bp) Structure</span></font></h2>
+<p><font face="Liberation Serif, serif"><span lang="en-US"><code class="western"><font face="Liberation Serif, serif"><span lang="en-US">file:Invoids</span></font></code><font face="Liberation Serif, serif"><span lang="en-US">
+→ output file name · </span></font><code class="western"><font face="Liberation Serif, serif"><span lang="en-US">entity:/rsm:SupplyChainTradeTransaction</span></font></code><font face="Liberation Serif, serif"><span lang="en-US">
+→ root node · lines </span></font><code class="western"><font face="Liberation Serif, serif"><span lang="en-US">-
+/path#</span></font></code><font face="Liberation Serif, serif"><span lang="en-US">
+= text value · </span></font><code class="western"><font face="Liberation Serif, serif"><span lang="en-US">-
+/path@schemeID</span></font></code><font face="Liberation Serif, serif"><span lang="en-US">
+= attribute.<br/>
+</span></font><font face="Liberation Serif, serif"><span lang="en-US"><b>Example
+.bp (from GOAL.md):</b></span></font></span></font></p>
+<pre class="ctl" style="border-top: none; border-bottom: none; border-left: 3.00pt solid #2c3e50; border-right: none; padding-top: 0cm; padding-bottom: 0cm; padding-left: 0.26cm; padding-right: 0cm; line-height: 140%; background: #f4f4f4"><font face="monospace"><span lang="en-US">file:Invoids</span></font>
+<font face="monospace"><span lang="en-US">entity:/Transaction</span></font>
+<font face="monospace"><span lang="en-US">- /Transaction/Invoid@SN</span></font>
+<font face="monospace"><span lang="en-US">- /Transaction/Invoid/Saler/PersonID#</span></font>
+<font face="monospace"><span lang="en-US">- /Transaction/Invoid/Buyer/PersonID#</span></font>
+<font face="monospace"><span lang="en-US">- /Transaction/Invoid/Items@Count</span></font>
+<font face="monospace"><span lang="en-US">- /Transaction/Invoid/Summary#</span></font>
+
+<font face="monospace"><span lang="en-US">file:Items</span></font>
+<font face="monospace"><span lang="en-US">entity:/Transaction/Invoid/Items/Item</span></font>
+<font face="monospace"><span lang="en-US">- /Transaction/Invoid/Items/Item@ID</span></font>
+<font face="monospace"><span lang="en-US">- /Transaction/Invoid/Items/Item/Name#</span></font>
+<font face="monospace"><span lang="en-US">- /Transaction/Invoid/Items/Item/Quantity#</span></font>
+<font face="monospace"><span lang="en-US">- /Transaction/Invoid/Items/Item/UnitPrice#</span></font>
+<font face="monospace"><span lang="en-US">- /Transaction/Invoid/Items/Item/TotalPrice#</span></font></pre><p>
+<font face="Liberation Serif, serif"><span lang="en-US"><font face="Liberation Serif, serif"><span lang="en-US"><b>Default
+entity:</b></span></font><font face="Liberation Serif, serif"><span lang="en-US">
+If </span></font><code class="western"><font face="Liberation Serif, serif"><span lang="en-US">entity:</span></font></code><font face="Liberation Serif, serif"><span lang="en-US">
+is not specified, default is </span></font><code class="western"><font face="Liberation Serif, serif"><span lang="en-US">&lt;root&gt;</span></font></code><font face="Liberation Serif, serif"><span lang="en-US">
+(root XML element).</span></font></span></font></p>
+<h2 class="ctl"><font face="Liberation Serif, serif"><span lang="en-US">Phases</span></font></h2>
+<p><font face="Liberation Serif, serif"><span lang="en-US">Pipeline
+slots = 2^N-1 (N=2→3, 3→7, 4→15, 5→31, 6→63, 7→127,
+8→255). Sweet spot ≈ N7 (127 slots, default) for -t1 / 1M XML; N8
+risk RAM/swap</span></font></p>
+<ol>
+	<li><p style="margin-bottom: 0cm"><font face="Liberation Serif, serif"><span lang="en-US">BootUp:
+	parse BP, register handlers, prepare writers</span></font></p></li>
+	<li><p style="margin-bottom: 0cm"><font face="Liberation Serif, serif"><span lang="en-US">MainLoop:
+	fill pipeline, process XML/zip, flush to output</span></font></p></li>
+	<li><p><font face="Liberation Serif, serif"><span lang="en-US">ClosingJob:
+	close writers, rename pending files, shutdown parser</span></font></p></li>
+</ol>
+<table width="680" cellpadding="8" cellspacing="0">
+	<col width="85"/>
+	<col width="227"/>
+	<col width="318"/>
+	<tr bgcolor="#2c3e50" style="background: #2c3e50">
+		<th width="85" style="border: 1px double #808080; padding: 0.21cm"><p>
+			<font face="Liberation Serif, serif"><span lang="en-US">Metric</span></font></p>
+		</th>
+		<th width="227" style="border: 1px double #808080; padding: 0.21cm"><p>
+			<font face="Liberation Serif, serif"><span lang="en-US">Value /
+			Size</span></font></p>
+		</th>
+		<th width="318" style="border: 1px double #808080; padding: 0.21cm"><p>
+			<font face="Liberation Serif, serif"><span lang="en-US">Note</span></font></p>
+		</th>
+	</tr>
+	<tr>
+		<td width="85" style="border-top: none; border-bottom: 1px double #808080; border-left: 1px double #808080; border-right: 1px double #808080; padding-top: 0cm; padding-bottom: 0.21cm; padding-left: 0.21cm; padding-right: 0.21cm"><p>
+			<font face="Liberation Serif, serif"><span lang="en-US">XML total</span></font></p>
+		</td>
+		<td width="227" style="border-top: none; border-bottom: 1px double #808080; border-left: 1px double #808080; border-right: 1px double #808080; padding-top: 0cm; padding-bottom: 0.21cm; padding-left: 0.21cm; padding-right: 0.21cm"><p>
+			<font face="Liberation Serif, serif"><span lang="en-US"><b>1,000,000</b>
+			files (100 zip × 10,000)</span></font></p>
+		</td>
+		<td width="318" style="border-top: none; border-bottom: 1px double #808080; border-left: 1px double #808080; border-right: 1px double #808080; padding-top: 0cm; padding-bottom: 0.21cm; padding-left: 0.21cm; padding-right: 0.21cm"><p>
+			<font face="Liberation Serif, serif"><span lang="en-US">Lab/testdata
+			~<b>5 GB</b> (compressed from raw data ~10 GB)</span></font></p>
+		</td>
+	</tr>
+	<tr>
+		<td width="85" style="border-top: none; border-bottom: 1px double #808080; border-left: 1px double #808080; border-right: 1px double #808080; padding-top: 0cm; padding-bottom: 0.21cm; padding-left: 0.21cm; padding-right: 0.21cm"><p>
+			<font face="Liberation Serif, serif"><span lang="en-US">Output
+			total</span></font></p>
+		</td>
+		<td width="227" style="border-top: none; border-bottom: 1px double #808080; border-left: 1px double #808080; border-right: 1px double #808080; padding-top: 0cm; padding-bottom: 0.21cm; padding-left: 0.21cm; padding-right: 0.21cm"><p>
+			<font face="Liberation Serif, serif"><span lang="en-US"><b>2 files</b>
+			(Invoids / Items)</span></font></p>
+		</td>
+		<td width="318" style="border-top: none; border-bottom: 1px double #808080; border-left: 1px double #808080; border-right: 1px double #808080; padding-top: 0cm; padding-bottom: 0.21cm; padding-left: 0.21cm; padding-right: 0.21cm"><p>
+			<font face="Liberation Serif, serif"><span lang="en-US">68
+			columns/file · ~1.7 <b>GB</b> </span></font>
+			</p>
+		</td>
+	</tr>
+	<tr bgcolor="#fff3cd" style="background: #fff3cd">
+		<td width="85" style="border-top: none; border-bottom: 1px double #808080; border-left: 1px double #808080; border-right: 1px double #808080; padding-top: 0cm; padding-bottom: 0.21cm; padding-left: 0.21cm; padding-right: 0.21cm"><p>
+			<font face="Liberation Serif, serif"><span lang="en-US">Time</span></font></p>
+		</td>
+		<td width="227" style="border-top: none; border-bottom: 1px double #808080; border-left: 1px double #808080; border-right: 1px double #808080; padding-top: 0cm; padding-bottom: 0.21cm; padding-left: 0.21cm; padding-right: 0.21cm"><p>
+			<font face="Liberation Serif, serif"><span lang="en-US"><b>~165</b>
+			<b>s</b> — 1,000,000 XML / N6 / b4 / t1</span></font></p>
+		</td>
+		<td width="318" style="border-top: none; border-bottom: 1px double #808080; border-left: 1px double #808080; border-right: 1px double #808080; padding-top: 0cm; padding-bottom: 0.21cm; padding-left: 0.21cm; padding-right: 0.21cm"><p>
+			<font face="Liberation Serif, serif"><span lang="en-US">N=6 · -b
+			4 · -t 1</span></font></p>
+		</td>
+	</tr>
+	<tr>
+		<td width="85" style="border-top: none; border-bottom: 1px double #808080; border-left: 1px double #808080; border-right: 1px double #808080; padding-top: 0cm; padding-bottom: 0.21cm; padding-left: 0.21cm; padding-right: 0.21cm"><p>
+			<font face="Liberation Serif, serif"><span lang="en-US">Pipeline
+			slots</span></font></p>
+		</td>
+		<td width="227" style="border-top: none; border-bottom: 1px double #808080; border-left: 1px double #808080; border-right: 1px double #808080; padding-top: 0cm; padding-bottom: 0.21cm; padding-left: 0.21cm; padding-right: 0.21cm"><p>
+			<font face="Liberation Serif, serif"><span lang="en-US"><b>63</b></span></font></p>
+		</td>
+		<td width="318" style="border-top: none; border-bottom: 1px double #808080; border-left: 1px double #808080; border-right: 1px double #808080; padding-top: 0cm; padding-bottom: 0.21cm; padding-left: 0.21cm; padding-right: 0.21cm"><p>
+			<font face="Liberation Serif, serif"><span lang="en-US">2⁶−1 ·
+			sweet spot (N7/8 → RAM/swap)</span></font></p>
+		</td>
+	</tr>
+	<tr>
+		<td width="85" style="border-top: none; border-bottom: 1px double #808080; border-left: 1px double #808080; border-right: 1px double #808080; padding-top: 0cm; padding-bottom: 0.21cm; padding-left: 0.21cm; padding-right: 0.21cm"><p>
+			<font face="Liberation Serif, serif"><span lang="en-US">System</span></font></p>
+		</td>
+		<td width="227" style="border-top: none; border-bottom: 1px double #808080; border-left: 1px double #808080; border-right: 1px double #808080; padding-top: 0cm; padding-bottom: 0.21cm; padding-left: 0.21cm; padding-right: 0.21cm"><p>
+			<font face="Liberation Serif, serif"><span lang="en-US">Linux
+			Ubuntu VM</span></font></p>
+		</td>
+		<td width="318" style="border-top: none; border-bottom: 1px double #808080; border-left: 1px double #808080; border-right: 1px double #808080; padding-top: 0cm; padding-bottom: 0.21cm; padding-left: 0.21cm; padding-right: 0.21cm"><p>
+			<font face="Liberation Serif, serif"><span lang="en-US">HDD
+			magnetic · Intel i5 · 8 GB DDR-3</span></font></p>
+		</td>
+	</tr>
+</table>
+<p><br/>
+<br/>
+
+</p>
+</body>
+</html>
