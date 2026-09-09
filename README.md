@@ -85,7 +85,7 @@ public class Main {
         // use pushJob and pullJob to easy comunicate to multitheads parser
 
         // push job to parser 
-        parser.pushJob(xml.byteBuffer, xml.size, xmlToken);
+        parser.pushJob(xml.byteBuffer, xml.size, yourToken);
 
         // Wait for completed job
         while ((xmlToken = (XmlToken) parser.pullJob()) == null) {
@@ -93,7 +93,7 @@ public class Main {
         }
 
         // Flush data to output files
-        flushXmlToken(xmlToken);
+        flushXmlToken(yourToken);
       
     }
 }
