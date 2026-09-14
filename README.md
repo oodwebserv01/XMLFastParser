@@ -32,14 +32,42 @@ java/xmlFastParser/: The core engine containing the FSM parser, TreeGraph struct
 
 java/Xml2Txt/: An example application built on top of xmlFastParser. It reads configuration files (.bp) and converts raw or ZIP-compressed XML data into a CSV-like .txt format optimized for database ingestion.
 
-Performance Benchmark
-The following benchmark demonstrates single-threaded processing performance using the Xml2Txt example application:
+# XMLFastParser (v01.01.00)
 
-Dataset: 5 GB ZIP archive (containing 10 GB uncompressed XML across ~1,000,000 XML files)
+> **Zero-Dependency, High-Throughput Streaming XML Engine for Java 21+**
 
-Output: 1.7 GB converted .txt file (database-ready format)
+`XMLFastParser` is a lightweight, ultra-high-performance Java XML parser engineered specifically for modern multi-core architectures and high-throughput streaming workloads. Designed to bypass the overhead of traditional DOM and heavy SAX implementations, it leverages a pure State Machine (FSM), Ahead-Of-Time (AOT) Tree Graphs, and advanced Predictive Skipping to push parsing speeds to the absolute physical limits of underlying storage hardware.
 
-Execution Time: 165 seconds (Single-threaded execution)
+---
+
+## ⚡ Key Benchmarks (v01.01.00)
+
+Tested on a 10GB XML payload using Java 21 (Single Thread / 7200 RPM Storage):
+
+| Engine Mode | Execution Time | CPU Utilization | Target Workload |
+| :--- | :--- | :--- | :--- |
+| **Predictive Mode** (`safeMode=false`) | **103 - 108s** | **~60%** (30-40% lower) | Maximum throughput on uniform/large streams |
+| **Safe Mode** (`safeMode=true`) | **160 - 165s** | **~100%** | Complex, deeply nested, or volatile XML structures |
+
+> **Hardware Saturation Note:** In Predictive Mode, scaling from 1 thread to 2 threads yields identical execution times (~103s). This confirms that `XMLFastParser` has fully saturated the physical read throughput of standard hard disk drives (HDD I/O Bound). Performance on NVMe/SSD or In-Memory streams will scale linearly.
+
+---
+
+## 🏗️ Architecture Overview
+
+Version **01.01.00** introduces a **Dual-Engine Architecture** that allows developers to balance raw execution speed with structural deterministic guarantees.
+
+### 1. Predictive Skipping Engine (`safeMode = false`)
+Instead of sequentially scanning every byte in a uniform record sequence, the Predictive Engine calculates structural offsets and jumps ahead across predictable byte boundaries. 
+* **30-40% Reduced CPU Cycles:** Bypasses non-essential tag scanning.
+* **Smart Validation:** Automatically verifies structural invariants upon landing to maintain parser integrity.
+
+### 2. Pure FSM Engine (`safeMode = true`)
+A deterministic, pure Finite State Machine coupled with an AOT TreeGraph traversal model.
+* **Zero Rollback Overhead:** Ideal for context-sensitive XML streams with ambiguous tag hierarchies or frequent sibling name collisions.
+* **Deterministic Execution:** Eliminates pipeline stalls caused by complex branch mispredictions.
+
+---
 
 Test Environment
 Guest VM: Lubuntu Linux (Allocated: 3 vCPUs, 8 GB RAM)
