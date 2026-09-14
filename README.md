@@ -35,11 +35,11 @@ java/Xml2Txt/: An example application built on top of xmlFastParser. It reads co
 Performance Benchmark
 The following benchmark demonstrates single-threaded processing performance using the Xml2Txt example application:
 
-Dataset: 5 GB ZIP archive (containing 10 GB uncompressed XML across ~1,000,000 XML files)
+Dataset: 5 GB ZIP archive (containing 10 GB uncompressed XML across 1,000,000 XML files)
 
 Output: 1.7 GB converted .txt file (database-ready format)
 
-Execution Time: 165 seconds (Single-threaded execution)
+Execution Time: 145 seconds (Single-threaded execution, I/O speed limit.)
 
 Test Environment
 Guest VM: Lubuntu Linux (Allocated: 3 vCPUs, 8 GB RAM)
