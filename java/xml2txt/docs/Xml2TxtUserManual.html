@@ -5,9 +5,8 @@
 	<title>XML2TXT User Manual</title>
 	<meta name="generator" content="LibreOffice 26.2.5.2 (Linux)"/>
 	<meta name="created" content="00:00:00"/>
-	<meta name="changed" content="2026-09-08T12:08:04.327293397"/>
+	<meta name="changed" content="2026-09-14T12:31:05.023221076"/>
 	<meta name="" content=""/>
-	<meta name="created" content="00:00:00">
 	<style type="text/css">
 		@page { size: 21cm 29.7cm; margin-left: 2cm; margin-right: 1cm; margin-top: 1cm; margin-bottom: 1cm }
 		p { background: transparent; margin-bottom: 0.25cm; line-height: 115%; background: transparent }
@@ -35,7 +34,9 @@
 <body lang="th-TH" link="#000080" vlink="#800000" dir="ltr"><h1 class="ctl">
 <font face="Liberation Serif, serif"><span lang="en-US">XML2TXT User
 Manual</span></font></h1>
-<p><font face="Liberation Serif, serif"><span lang="en-US"><b>Version 01.01.00</b> (version 01, minor 01, patch 00) — safeMode เพิ่มสำหรับการทำงานแบบไม่ใช้การ predict</span></font></p>
+<p><font face="Liberation Serif, serif"><span lang="en-US"><b>Version
+01.01.00</b> (version 01, minor 01, patch 00) — safeMode added for
+No_Predict&amp;Jump operation</span></font></p>
 <p><font face="Liberation Serif, serif"><span lang="en-US">Usage:
 java -cp compiled XML2TXT -p &lt;bp&gt; -s &lt;src&gt; -d &lt;dest&gt;
 [-t threads] [-n 7] [-b 1] [-safe]</span></font></p>
@@ -52,17 +53,25 @@ java -cp compiled XML2TXT -p &lt;bp&gt; -s &lt;src&gt; -d &lt;dest&gt;
 	pipeline depth 2-16 (default <b>7</b>, benchmark used 6)</span></font></p></li>
 	<li><p><a name="__DdeLink__0_1753278096"></a><font face="Liberation Serif, serif"><span lang="en-US"><b>-b</b>
 	flush batch 1-10000 (default <b>1</b>; benchmark used 4)</span></font></p></li>
-	<li><p style="margin-bottom: 0cm"><font face="Liberation Serif, serif"><span lang="en-US"><b>-safe</b> safeMode ON (disable predict / ไม่ใช้การ predict)</span></font></p></li>
+	<li><p style="margin-bottom: 0cm"><font face="Liberation Serif, serif"><span lang="en-US"><b>-safe</b>
+	safeMode ON (disable predict / No_Predict&amp;Jump)</span></font></p></li>
 </ul>
 <p><font face="Liberation Serif, serif"><span lang="en-US">Output
 naming: [entityName]_ThreadNo_YYYYMMDDHHmmss.txt. Pending file
 written first, renamed on ClosingJob.</span></font></p>
+<p><font face="Liberation Serif, serif"><span lang="en-US"><font face="Liberation Serif, serif"><span lang="en-US"><b>safeMode
+/ No_Predict&amp;Jump:</b></span></font><font face="Liberation Serif, serif"><span lang="en-US">
+When </span></font><code class="western"><font face="Liberation Serif, serif"><span lang="en-US">safe=true</span></font></code><font face="Liberation Serif, serif"><span lang="en-US">
+(or CLI </span></font><code class="western"><font face="Liberation Serif, serif"><span lang="en-US">-safe</span></font></code><font face="Liberation Serif, serif"><span lang="en-US">),
+parser disables Predict&amp;Jump (</span></font><code class="western"><font face="Liberation Serif, serif"><span lang="en-US">verifyPrediction</span></font></code><font face="Liberation Serif, serif"><span lang="en-US">
+skipped) and uses </span></font><code class="western"><font face="Liberation Serif, serif"><span lang="en-US">doSafeMode()</span></font></code><font face="Liberation Serif, serif"><span lang="en-US">
+with </span></font><code class="western"><font face="Liberation Serif, serif"><span lang="en-US">EV_RESET_IN_SAFEMODE=1004</span></font></code><font face="Liberation Serif, serif"><span lang="en-US">.</span></font></span></font></p>
 <h2 class="ctl"><font face="Liberation Serif, serif"><span lang="en-US">Benchmark
-— 1,000,000 XML (N6 b4 t1)</span></font></h2>
+— 1,000,000 XML (n4 b4 t1)</span></font></h2>
 <p align="center" style="border: none; padding: 0cm; background: #2c3e50">
 <font color="#ffffff"><font face="Liberation Serif, serif"><span lang="en-US"><b>TIME
-~165</b> <b>sec</b> &nbsp;|&nbsp; 1M XML (10 GB)&nbsp;|&nbsp; N6 ·
-b4 · t1 &nbsp;|&nbsp; ~520 <b>M XML (5.2 TB)</b> / 24h </span></font></font>
+~1</b><b>4</b><b>5</b> <b>sec</b> &nbsp;|&nbsp; 1M XML (10 GB)&nbsp;|&nbsp;
+n4 · b4 · t1 &nbsp;|&nbsp; ~520 <b>M XML (5.2 TB)</b> / 24h </span></font></font>
 </p>
 <h2 class="ctl"><font face="Liberation Serif, serif"><span lang="en-US">Blueprint
 (.bp) Structure</span></font></h2>

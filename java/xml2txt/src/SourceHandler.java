@@ -1,3 +1,6 @@
+// Version 01.01.00 — safeMode + NO_Predict&Jump (upgraded jump from 01.00.00)
+// Benchmark: 145 sec / 1M XML (1 thread, HDD ceiling)
+
 import java.io.*;
 import java.util.*;
 import java.util.zip.*;
@@ -59,10 +62,10 @@ public class SourceHandler {
         }
     }
 
-    public SourceHandler(String folderPath) throws IOException {
-        this.folder = new File(folderPath);
+    public SourceHandler(String pathIP, String pathOP) throws IOException {
+        this.folder = new File(pathIP);
         if (!this.folder.exists() || !this.folder.isDirectory()) {
-            throw new IllegalArgumentException("Source folder does not exist: " + folderPath);
+            throw new IllegalArgumentException("Source folder does not exist: " + pathIP);
         }
 
         // List files (.xml and .zip only, no subdirectories)
@@ -76,7 +79,7 @@ public class SourceHandler {
         }
 
         // Create log file in source folder
-        File logFile = new File(this.folder, "xml2txt.log");
+        File logFile = new File(pathOP, "xml2txt.log");
         this.logWriter = new PrintWriter(new FileWriter(logFile, true)); // append mode
     }
 

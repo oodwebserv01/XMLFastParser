@@ -32,10 +32,13 @@ public class xmlBluePrintNode {
 
     // Whether this node is a TARGET (registered via regist() with handler)
     public boolean isTarget;
+    
+    public xmlBluePrintNode[] nextPredictTarget;
+    public int[] nextPredictDistance;
 
     // Whether this node is a CHILD of a target (registered under a target path)
 
-    public CELL HD_CLOSINGTAG;
+    CELL HD_CLOSINGTAG;
 
     /**
      * Handler-Token pair for multiple handler support.
@@ -51,8 +54,11 @@ public class xmlBluePrintNode {
     }
 
     /**
-     * Add a handler to this node.
-     * @return this node for chaining
+     * Adds a handler to this node.
+     *
+     * @param handler the {@link xmlBluePrintCall} handler to be added
+     * @param idToken the identification token associated with this handler
+     * @return this node for method chaining
      */
     public xmlBluePrintNode addHandler(xmlBluePrintCall handler, Object idToken) {
         if (handler != null) {
@@ -89,21 +95,28 @@ public class xmlBluePrintNode {
         this.tagHash = 0;
         this.parent = null;
         this.isTarget = false;
-        this.HD_CLOSINGTAG = null;
+        this.HD_CLOSINGTAG = xmlBluePrint.HD_CLOSINGTAG;
     }
 
     /**
-     * Constructor for path nodes.
+     * Constructs a path node with the specified parent node and tag hash.
+     *
+     * @param parent  the parent {@link xmlBluePrintNode}, or {@code null} if this is a root node
+     * @param tagHash the hash value of the tag representing this node
      */
     public xmlBluePrintNode(xmlBluePrintNode parent,long tagHash) {
         this.parent = parent;
         this.tagHash = tagHash;
         this.isTarget = false;
         this.HD_CLOSINGTAG = xmlBluePrint.HD_CLOSINGTAG;
+        
     }
 
     /**
-     * Add or get child node.
+     * Gets an existing child node matching the specified tag hash, or creates and returns a new one if it does not exist.
+     *
+     * @param tagHash the hash value of the child tag to retrieve or create
+     * @return the existing or newly created {@link xmlBluePrintNode}
      */
     public xmlBluePrintNode getOrCreateChild(long tagHash) {
         xmlBluePrintNode child = children.get(tagHash);
@@ -115,16 +128,14 @@ public class xmlBluePrintNode {
     }
 
     /**
-     * Get child by hash.
+     * Gets the child node matching the specified tag hash.
+     *
+     * @param tagHash the hash value of the child tag to retrieve
+     * @return the matching {@link xmlBluePrintNode}, or {@code null} if not found
      */
     public xmlBluePrintNode getChild(long tagHash) {
         return children.get(tagHash);
     }
 
-    /**
-     * Check if has child with hash.
-     */
-    public boolean hasChild(long tagHash) {
-        return children.containsKey(tagHash);
-    }
+
 }

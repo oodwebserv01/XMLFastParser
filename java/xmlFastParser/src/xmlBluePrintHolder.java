@@ -35,11 +35,6 @@ public class xmlBluePrintHolder {
     // Engine
     // ==========================================
 
-    // For ignore tag tracking
-    public long ignoreTagHash;           // Hash of tag being ignored
-    public int ignoreDepth;              // Nesting depth of ignore tag
-    // ThreadContext associated with this holder (set by xmlBluePrint during worker initialization)
-
     // VarHandle for StoreLoad barrier (array element visibility) - JDK 9+
     // Use static VarHandle.fullFence() method directly
 
@@ -112,7 +107,7 @@ public class xmlBluePrintHolder {
     };
 
     // Get job from job queue
-    boolean nextJob() {
+    boolean nextJob(boolean safe) {
         // Emit root close event if the previous job did not see a root closing tag.
         // This guarantees that rootHandler receives EV_CLOSE_TAG for every job,
         // even when the root open handler returned false or an error occurred before
@@ -136,15 +131,11 @@ public class xmlBluePrintHolder {
             attrName = 0; attrEnd = 0;
             value = 0; valEnd = 0;
             hRootName = 0; hTagName = 0;
+            safeMode = safe;
+            jumped = false;
 
             // Reset log state
-            logSize = 0;
-            rootOffset = -1;
-            lastTargetOffset = -1;
-            predictedLog = null;
-            predictedIndex = 0;
-            predictionActive = false;
-            predictionValid = true;
+            lastTargetOffset = 0;
 
             rootClosed = false;  // Reset root closed flag for new job
 
@@ -156,6 +147,23 @@ public class xmlBluePrintHolder {
             return false;
         }
     };
+    
+    void doSafeMode(){
+        pointer = RootNameEnd;
+        currentNode = bluePrint.root;
+        xmlState = xmlBluePrint.S_TARGET_INTAG;
+        skipDepth = 0;
+        skipName = 0;
+        tagName = RootName; tagNameEnd = RootNameEnd;
+        attrName = 0; attrEnd = 0;
+        value = 0; valEnd = 0;
+        hTagName = hRootName;
+        safeMode = true;
+        jumped = false;
+        // Reset log state
+        lastTargetOffset = 0;
+        rootClosed = false;  // Reset root closed flag for new job
+    }
 
     xmlBluePrintHolder(int Nof2Power) {
         // Ensure exponent at least 2 (queue size >= 4)
@@ -168,29 +176,14 @@ public class xmlBluePrintHolder {
     }
 
 
-    /**
-     * Get the target distance log for the current job.
-     * Returns arrays of (distance, targetTagHash) pairs.
-     */
-    long[] getLogDistances() {
-        long[] result = new long[logSize];
-        System.arraycopy(logDistances, 0, result, 0, logSize);
-        return result;
-    }
-
-    long[] getLogHashes() {
-        long[] result = new long[logSize];
-        System.arraycopy(logHashes, 0, result, 0, logSize);
-        return result;
-    }
-
-    int getLogSize() {
-        return logSize;
-    }
-
     /* -- XML STATE RELATE -- */
     int pointer = 0; // index ของ byte ที่กำลังอ่าน
     int xmlState = xmlBluePrint.S_HEADER; // state of parser
+
+    // For ignore tag tracking
+    public long ignoreTagHash;           // Hash of tag being ignored
+    public int ignoreDepth;              // Nesting depth of ignore tag
+    
 
     // Simple skip for unregistered branches: track first unregistered tag name + depth
     long skipName = 0;  // hash of first unregistered tag
@@ -208,29 +201,21 @@ public class xmlBluePrintHolder {
     // ============================================================
     // Target Distance Logging & Predictive Shortcuts
     // ============================================================
-    private static final int MAX_LOG_TARGETS = 256;
-    long[] logDistances = new long[MAX_LOG_TARGETS];
-    long[] logHashes = new long[MAX_LOG_TARGETS];
-    int logSize = 0;
-    int rootOffset = -1;       // byte offset of '<root>'
     int lastTargetOffset = -1; // byte offset of last target's '<'
-
-    // Prediction state
-    xmlBluePrint.LogEntry predictedLog = null;
-    int predictedIndex = 0;
-    boolean predictionActive = false;
-    boolean predictionValid = true;
+    boolean safeMode, jumped;
+    int RootName,RootNameEnd;
 
 
     /* -- CONSTRUCTION RELATE -- */
     xmlBluePrint bluePrint = null;
     xmlBluePrintNode currentNode = null; // current brach
+    xmlBluePrintNode previousTargetNode = null; // current brach
     Thread myThread = null; volatile int threadNo = -1;
     int ready2down = 1;
     boolean rootClosed = false;  // Track if root close tag was processed
 
-    private int jobQueSize = 4;
-    private int jobQueMask = 3;
+    private int jobQueSize;
+    private int jobQueMask;
 
     /* -- Ring Type Job Queue size 2^N -- */
     volatile Object[] tokenFile;

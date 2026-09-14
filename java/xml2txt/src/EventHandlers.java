@@ -1,8 +1,9 @@
+// Version 01.01.00 — safeMode + NO_Predict&Jump (upgraded jump from 01.00.00)
+// Benchmark: 145 sec / 1M XML (1 thread, HDD ceiling)
+
 import java.util.concurrent.locks.LockSupport;
-import java.util.concurrent.atomic.AtomicLong;
 import xmlFastParser.xmlBluePrint;
 import xmlFastParser.xmlBluePrintCall;
-import xmlFastParser.xmlBluePrintHolder;
 
 /**
  * EventHandlers - Contains the 4 xmlBluePrintCall implementations
@@ -16,9 +17,7 @@ public class EventHandlers {
     // ============================================================
     // HD_Root - Root handler (open/close of XML document)
     // ============================================================
-    public static final xmlBluePrintCall HD_Root = new xmlBluePrintCall() {
-        @Override
-        public boolean call(Object idToken, xmlBluePrintHolder holder, int event, int nameBegin, int nameEnd, int valueBegin, int valueEnd) {
+    public static final xmlBluePrintCall HD_Root = (idToken, holder, event, nameBegin, nameEnd, valueBegin, valueEnd) -> {
             TokenRoot tokenRoot = (TokenRoot) idToken;
 
             if (event == xmlBluePrint.EV_CLOSE_TAG) {
@@ -67,15 +66,13 @@ public class EventHandlers {
                 LockSupport.unpark(tokenRoot.thread);
             }
             return true;
-        }
+        
     };
 
     // ============================================================
     // HD_Error - Error handler
     // ============================================================
-    public static final xmlBluePrintCall HD_Error = new xmlBluePrintCall() {
-        @Override
-        public boolean call(Object idToken, xmlBluePrintHolder holder, int event, int nameBegin, int nameEnd, int valueBegin, int valueEnd) {
+    public static final xmlBluePrintCall HD_Error = (idToken, holder, event, nameBegin, nameEnd, valueBegin, valueEnd) -> {
             TokenRoot tokenRoot = (TokenRoot) idToken;
             XmlToken xmlToken = (XmlToken) holder.getTokenFile();
             String fileName = xmlToken.xml.name;
@@ -98,9 +95,13 @@ public class EventHandlers {
                     err = "ERROR_" + event;
                     break;
             }
-
-            // Set error message with location and timestamp
-            xmlToken.msgError = err + " : byte NO = " + holder.getErrorLocation() + " : file = " + fileName + " " + timestamp();
+            
+            // EV_RESET_IN_SAFEMODE : mean there a tag with same location & name as target but difference parent, parser wanna restart in safeMode we just need to reset datas(the data may be wrong)
+            if (xmlBluePrint.EV_RESET_IN_SAFEMODE != event) {
+                // here it's not EV_RESET_IN_SAFEMODE so this is real ERROR
+                // Set error message with location and timestamp
+                xmlToken.msgError = err + " : byte NO = " + holder.getErrorLocation() + " : file = " + fileName + " " + new java.text.SimpleDateFormat("yyyyMMddHHmmss").format(new java.util.Date());
+            }
 
             // Clear all entity buffers
             for (java.util.Map.Entry<Long, TokenEntity> entry : tokenRoot.AllTokenEntity.entrySet()) {
@@ -114,21 +115,16 @@ public class EventHandlers {
                     tokenEntity.isEmpty = true;
                 }
             }
-
-            return false; // Signal error to parser
-        }
-
-        private String timestamp() {
-            return new java.text.SimpleDateFormat("yyyyMMddHHmmss").format(new java.util.Date());
-        }
+            
+            // if Return "TRUE" : mean parser can continue with the current XML 
+            return xmlBluePrint.EV_RESET_IN_SAFEMODE == event; 
+        
     };
 
     // ============================================================
     // HD_Entity - Entity handler (close tag = end of row)
     // ============================================================
-    public static final xmlBluePrintCall HD_Entity = new xmlBluePrintCall() {
-        @Override
-        public boolean call(Object idToken, xmlBluePrintHolder holder, int event, int nameBegin, int nameEnd, int valueBegin, int valueEnd) {
+    public static final xmlBluePrintCall HD_Entity = (idToken, holder, event, nameBegin, nameEnd, valueBegin, valueEnd) -> {
             if (event == xmlBluePrint.EV_CLOSE_TAG) {
                 TokenEntity tokenEntity = (TokenEntity) idToken;
                 if (tokenEntity.isEmpty) return true; // Skip assembly if no data
@@ -151,15 +147,12 @@ public class EventHandlers {
                 tokenEntity.isEmpty = true;
             }
             return true;
-        }
     };
 
     // ============================================================
     // HD_Column - Column handler (innerText/attribute data)
     // ============================================================
-    public static final xmlBluePrintCall HD_Column = new xmlBluePrintCall() {
-        @Override
-        public boolean call(Object idToken, xmlBluePrintHolder holder, int event, int nameBegin, int nameEnd, int valueBegin, int valueEnd) {
+    public static final xmlBluePrintCall HD_Column = (idToken, holder, event, nameBegin, nameEnd, valueBegin, valueEnd) -> {
             TokenColumn tokenColumn = (TokenColumn) idToken;
             StringBuffer[] rowBuffer = tokenColumn.entity.Factory[holder.getThreadNO()];
 
@@ -182,6 +175,5 @@ public class EventHandlers {
                 }
             }
             return true;
-        }
     };
 }

@@ -1,3 +1,6 @@
+// Version 01.01.00 — safeMode + NO_Predict&Jump (upgraded jump from 01.00.00)
+// Benchmark: 145 sec / 1M XML (1 thread, HDD ceiling)
+
 import java.io.*;
 import java.util.*;
 import java.util.concurrent.locks.LockSupport;
@@ -41,8 +44,9 @@ public class Xml2txt {
     private XmlToken[] allXmlToken;
     private int xmlRead = 0;
     private int xmlReturn = 0;
+    private boolean safeMode = false;
     
-    private String[] inProgress = {"|", "/", "-", "\\"};
+    private static final String[] inProgress = {"|", "/", "-", "\\"};
     private int idProgress = 0;
 
     // Pipeline config
@@ -80,9 +84,17 @@ public class Xml2txt {
                 case "-d":
                     if (i + 1 < args.length) pathDest = args[++i];
                     break;
+                case "-safe":
+                    safeMode = true;
+                    break;
+                case "-h":
+                    System.out.println("Config:\n\t -safe : safeMode ON\n\t -t <Number of threads>\n\t -n <N> : set pipe line size as N of '(-1)+2^N'\n\t -b <outputBuffer> : Number of xml parsed/flush.\n\t -s <srcPath>\n\t -d <destPath>\n\t -b <.bp File> : .bp type config file format");
+                    System.out.println("<< Algorithm by Ood Kritsana Wuttisin >>");
+                    System.out.println("version : 01.01.00 (version, minor change, patch)");
+                    break;                    
             }
         }
-        System.out.println("Config: threads=" + numThreads + ", pipeLineDeep=" + C_PipeLineDeep + ", outputBuffer=" + C_bufferSize + ", src=" + pathSource + ", dest=" + pathDest + ", bp=" + pathBP );
+        System.out.println("Config: safeMode="+ safeMode +", threads=" + numThreads + ", pipeLineDeep=" + C_PipeLineDeep + ", outputBuffer=" + C_bufferSize + ", src=" + pathSource + ", dest=" + pathDest + ", bp=" + pathBP );
     }
 
     // ============================================================
@@ -109,7 +121,7 @@ public class Xml2txt {
         xmlReturn = 0;
 
         // Create parser
-        parser = new xmlBluePrint();
+        parser = new xmlBluePrint(this.safeMode);
 
         // Tune parser
         parser.setPipeLineDeep(C_PipeLineDeep);
@@ -146,7 +158,7 @@ public class Xml2txt {
 
         // Create SourceHandler
         System.out.println("Initializing source handler: " + pathSource);
-        source = new SourceHandler(pathSource);
+        source = new SourceHandler(pathSource, pathDest);
 
         // Prepare allEntityOutput - create _pending.txt files in dest folder
         allEntityOutput = new HashMap<>();
