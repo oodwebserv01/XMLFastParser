@@ -35,9 +35,10 @@
 <body lang="th-TH" link="#000080" vlink="#800000" dir="ltr"><h1 class="ctl">
 <font face="Liberation Serif, serif"><span lang="en-US">XML2TXT User
 Manual</span></font></h1>
+<p><font face="Liberation Serif, serif"><span lang="en-US"><b>Version 01.01.00</b> (version 01, minor 01, patch 00) — safeMode เพิ่มสำหรับการทำงานแบบไม่ใช้การ predict</span></font></p>
 <p><font face="Liberation Serif, serif"><span lang="en-US">Usage:
 java -cp compiled XML2TXT -p &lt;bp&gt; -s &lt;src&gt; -d &lt;dest&gt;
-[-t threads] [-N 7] [-b 1]</span></font></p>
+[-t threads] [-n 7] [-b 1] [-safe]</span></font></p>
 <ul>
 	<li><p style="margin-bottom: 0cm"><font face="Liberation Serif, serif"><span lang="en-US"><b>-p</b>
 	blueprint (.bp)</span></font></p></li>
@@ -51,6 +52,7 @@ java -cp compiled XML2TXT -p &lt;bp&gt; -s &lt;src&gt; -d &lt;dest&gt;
 	pipeline depth 2-16 (default <b>7</b>, benchmark used 6)</span></font></p></li>
 	<li><p><a name="__DdeLink__0_1753278096"></a><font face="Liberation Serif, serif"><span lang="en-US"><b>-b</b>
 	flush batch 1-10000 (default <b>1</b>; benchmark used 4)</span></font></p></li>
+	<li><p style="margin-bottom: 0cm"><font face="Liberation Serif, serif"><span lang="en-US"><b>-safe</b> safeMode ON (disable predict / ไม่ใช้การ predict)</span></font></p></li>
 </ul>
 <p><font face="Liberation Serif, serif"><span lang="en-US">Output
 naming: [entityName]_ThreadNo_YYYYMMDDHHmmss.txt. Pending file
