@@ -5,3 +5,6 @@
 !java/**/*.jar
 !Lab/BluePrint.bp
 !.gitignore
+
+!llms.txt
+!LICENSE
