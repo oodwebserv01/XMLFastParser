@@ -1,0 +1,46 @@
+name: SLSA generic generator
+
+on:
+  workflow_dispatch:
+  release:
+    types: [created]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      digests: ${{ steps.hash.outputs.digests }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # 1. ติดตั้ง Java 21 และ Cache Maven
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      # 2. สั่ง Build โปรเจกต์ด้วย Maven เพื่อให้ได้ไฟล์ .jar ออกมา
+      - name: Build with Maven
+        run: mvn -B package --file pom.xml
+
+      # 3. ระบุไฟล์ .jar ที่ต้องการเอาไปออกใบรับรอง SLSA
+      - name: Generate subject for provenance
+        id: hash
+        run: |
+          set -euo pipefail
+          files=$(ls target/*.jar)
+          echo "hashes=$(sha256sum $files | base64 -w0)" >> "${GITHUB_OUTPUT}"
+
+  provenance:
+    needs: [build]
+    permissions:
+      actions: read   # To read the workflow path.
+      id-token: write # To sign the provenance.
+      contents: write # To add assets to a release.
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.4.0
+    with:
+      base64-subjects: "${{ needs.build.outputs.digests }}"
+      upload-assets: true
