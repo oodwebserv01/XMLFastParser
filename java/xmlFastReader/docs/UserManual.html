@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta http-equiv="content-type" content="text/html; charset=utf-8"/>
+	<title>xmlFastReader User Manual — Usage Guide</title>
+	<meta name="generator" content="LibreOffice 26.2.5.2 (Linux)"/>
+	<meta name="created" content="00:00:00"/>
+	<meta name="changed" content="2026-09-18T11:30:20.379880591"/>
+	<meta name="" content=""/>
+	<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+	<style type="text/css">
+		@page { size: 21cm 29.7cm; margin-left: 2cm; margin-right: 1cm; margin-top: 1cm; margin-bottom: 1cm }
+		p { line-height: 115%; font-family: "system-ui", "Segoe UI", "Roboto", "Noto Sans", sans-serif; margin-bottom: 0.25cm; background: transparent }
+		h2 { margin-top: 0.35cm; margin-bottom: 0.21cm; line-height: 170%; background: transparent; page-break-after: avoid }
+		h2.western { font-weight: bold; font-size: 18pt; font-family: "Liberation Serif", serif }
+		h2.cjk { font-weight: bold; font-size: 18pt; font-family: "Noto Serif CJK SC" }
+		h2.ctl { font-weight: bold; font-family: "Kinnari"; font-size: 18pt }
+		h3 { margin-top: 0.25cm; margin-bottom: 0.21cm; line-height: 170%; background: transparent; page-break-after: avoid }
+		h3.western { font-weight: bold; font-size: 14pt; font-family: "Liberation Serif", serif }
+		h3.cjk { font-weight: bold; font-size: 14pt; font-family: "Noto Serif CJK SC" }
+		h3.ctl { font-weight: bold; font-family: "Kinnari"; font-size: 14pt }
+		pre { line-height: 170%; font-size: 10pt; font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace; border-top: none; border-bottom: none; border-left: 3.00pt solid #000000; border-right: none; padding-top: 0cm; padding-bottom: 0cm; padding-left: 0.05cm; padding-right: 0cm; background: transparent }
+		h1 { margin-bottom: 0.21cm; line-height: 170%; background: transparent; page-break-after: avoid }
+		h1.western { font-weight: bold; font-size: 24pt; font-family: "Liberation Serif", serif }
+		h1.cjk { font-weight: bold; font-size: 24pt; font-family: "Noto Serif CJK SC" }
+		h1.ctl { font-weight: bold; font-family: "Kinnari"; font-size: 24pt }
+		td p { widows: 0; orphans: 0; line-height: 170%; font-family: "system-ui", "Segoe UI", "Roboto", "Noto Sans", sans-serif; background: transparent }
+		th p { line-height: 170%; font-weight: bold; font-family: "system-ui", "Segoe UI", "Roboto", "Noto Sans", sans-serif; text-align: center; orphans: 0; widows: 0; color: #ffffff; background: transparent }
+		code { font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace }
+		strong { font-weight: bold }
+		a:link { color: #000080; text-decoration: underline }
+		a:visited { color: #800000; text-decoration: underline }
+	</style>
+</head>
+<body lang="th-TH" link="#000080" vlink="#800000" dir="ltr"><h1 class="ctl">
+<font color="#000000"><font face="Liberation Serif, serif"><span lang="en-US"><span style="background: transparent">xmlFastReader
+User Manual</span></span></font></font></h1>
+<p><span lang="en-US"><font color="#000000"><span style="background: transparent">Easy-to-use
+API powered by the core algorithm </span></font><code><font color="#000000"><span style="background: transparent">xmlFastParser</span></font></code><font color="#000000"><span style="background: transparent">
+— with examples from </span></font><code><font color="#000000"><span style="background: transparent">testXmlFastReader.java</span></font></code></span></p>
+<h2 class="ctl"><font color="#000000"><font face="Liberation Serif, serif"><span lang="en-US"><span style="background: transparent">01
+Project Overview</span></span></font></font></h2>
+<p><span lang="en-US"><strong><font color="#000000"><span style="background: transparent">xmlFastReader</span></font></strong><font color="#000000"><span style="background: transparent">
+is a simple-to-use API that reads XML documents and extracts data
+into tables (entity/column) according to a format defined in a </span></font><code><font color="#000000"><span style="background: transparent">.bp</span></font></code><font color="#000000"><span style="background: transparent">
+(blueprint) file. It relies on </span></font><code><font color="#000000"><span style="background: transparent">xmlFastParser</span></font></code><font color="#000000"><span style="background: transparent">
+as the core engine for parsing XML in a multi-threaded pipeline.</span></font></span></p>
+<p><font color="#000000"><span lang="en-US"><span style="background: transparent">Key
+files in the sub-project:</span></span></font></p>
+<table cellpadding="2" cellspacing="2">
+	<thead>
+		<tr>
+			<th style="border: none; padding: 0cm"><p><font color="#000000"><span lang="en-US"><span style="background: transparent">File</span></span></font></p>
+			</th>
+			<th style="border: none; padding: 0cm"><p><font color="#000000"><span lang="en-US"><span style="background: transparent">Role</span></span></font></p>
+			</th>
+		</tr>
+	</thead>
+	<tbody>
+		<tr>
+			<td style="border: none; padding: 0cm"><p><span lang="en-US"><code><font color="#000000"><span style="background: transparent">XmlFastReader.java</span></font></code></span></p>
+			</td>
+			<td style="border: none; padding: 0cm"><p><font color="#000000"><span lang="en-US"><span style="background: transparent">Main
+				API — create instance, set blueprint, parse, shutdown</span></span></font></p>
+			</td>
+		</tr>
+		<tr>
+			<td style="border: none; padding: 0cm"><p><span lang="en-US"><code><font color="#000000"><span style="background: transparent">BPParser.java</span></font></code></span></p>
+			</td>
+			<td style="border: none; padding: 0cm"><p><span lang="en-US"><font color="#000000"><span style="background: transparent">Reads
+				</span></font><code><font color="#000000"><span style="background: transparent">.bp</span></font></code><font color="#000000"><span style="background: transparent">
+				file and creates </span></font><code><font color="#000000"><span style="background: transparent">TokenEntity</span></font></code><font color="#000000"><span style="background: transparent">
+				/ </span></font><code><font color="#000000"><span style="background: transparent">TokenColumn</span></font></code></span></p>
+			</td>
+		</tr>
+		<tr>
+			<td style="border: none; padding: 0cm"><p><span lang="en-US"><code><font color="#000000"><span style="background: transparent">EventHandlers.java</span></font></code></span></p>
+			</td>
+			<td style="border: none; padding: 0cm"><p><span lang="en-US"><font color="#000000"><span style="background: transparent">4
+				handlers: </span></font><code><font color="#000000"><span style="background: transparent">HD_Root</span></font></code><font color="#000000"><span style="background: transparent">,
+				</span></font><code><font color="#000000"><span style="background: transparent">HD_Error</span></font></code><font color="#000000"><span style="background: transparent">,
+				</span></font><code><font color="#000000"><span style="background: transparent">HD_Entity</span></font></code><font color="#000000"><span style="background: transparent">,
+				</span></font><code><font color="#000000"><span style="background: transparent">HD_Column</span></font></code></span></p>
+			</td>
+		</tr>
+		<tr>
+			<td style="border: none; padding: 0cm"><p><span lang="en-US"><code><font color="#000000"><span style="background: transparent">XmlToken.java</span></font></code></span></p>
+			</td>
+			<td style="border: none; padding: 0cm"><p><span lang="en-US"><font color="#000000"><span style="background: transparent">Pipeline
+				token — carries </span></font><code><font color="#000000"><span style="background: transparent">XmlPackage</span></font></code><font color="#000000"><span style="background: transparent">,
+				result buffer </span></font><code><font color="#000000"><span style="background: transparent">buffOP</span></font></code><font color="#000000"><span style="background: transparent">,
+				error message </span></font><code><font color="#000000"><span style="background: transparent">msgError</span></font></code></span></p>
+			</td>
+		</tr>
+		<tr>
+			<td style="border: none; padding: 0cm"><p><span lang="en-US"><code><font color="#000000"><span style="background: transparent">XmlPackage.java</span></font></code></span></p>
+			</td>
+			<td style="border: none; padding: 0cm"><p><font color="#000000"><span lang="en-US"><span style="background: transparent">Wraps
+				XML data (byte[], size, idFile, name)</span></span></font></p>
+			</td>
+		</tr>
+	</tbody>
+</table>
+<h2 class="ctl"><font face="Liberation Serif, serif"><span lang="en-US"><font color="#000000"><span style="background: transparent">02
+Blueprint File Format (</span></font><code><font color="#000000"><span style="background: transparent">.bp</span></font></code><font color="#000000"><span style="background: transparent">)</span></font></span></font></h2>
+<p><span lang="en-US"><font color="#000000"><span style="background: transparent">Before
+using the API, prepare a </span></font><code><font color="#000000"><span style="background: transparent">.bp</span></font></code><font color="#000000"><span style="background: transparent">
+file to tell the parser: “For any XML document with this entity
+name, extract data from this XPath as columns.”</span></font></span></p>
+<pre><font color="#000000"><span lang="en-US"><span style="background: transparent">file:Invoids            # Entity / output file name</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">entity:/Transaction     # XPath of the main document</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">- /Transaction/Invoid@SN  # Attribute column @SN</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">- /Transaction/Invoid#    # Inner text column</span></span></font></pre>
+<ul>
+	<li><p style="margin-bottom: 0cm"><span lang="en-US"><strong><font color="#000000"><span style="background: transparent">file:</span></font></strong><font color="#000000"><span style="background: transparent">
+	Entity name (used as key in output) </span></font></span>
+	</p></li>
+	<li><p style="margin-bottom: 0cm"><span lang="en-US"><strong><font color="#000000"><span style="background: transparent">entity:</span></font></strong><font color="#000000"><span style="background: transparent">
+	XPath of the tag considered one row </span></font></span>
+	</p></li>
+	<li><p style="margin-bottom: 0cm"><span lang="en-US"><strong><font color="#000000"><span style="background: transparent">-
+	/path#</span></font></strong><font color="#000000"><span style="background: transparent">:
+	Inner text (content between open/close tags) </span></font></span>
+	</p></li>
+	<li><p><span lang="en-US"><strong><font color="#000000"><span style="background: transparent">-
+	/path@attr</span></font></strong><font color="#000000"><span style="background: transparent">:
+	Attribute of the tag </span></font></span>
+	</p></li>
+</ul>
+<p><span style="display: inline-block; border-top: none; border-bottom: none; border-left: 3.00pt solid #000000; border-right: none; padding-top: 0cm; padding-bottom: 0cm; padding-left: 0.05cm; padding-right: 0cm"><span lang="en-US"><strong><font color="#000000"><span style="background: transparent">Note:</span></font></strong><font color="#000000"><span style="background: transparent">
+</span></font><code><font color="#000000"><span style="background: transparent">BPParser.parseBP()</span></font></code><font color="#000000"><span style="background: transparent">
+creates </span></font><code><font color="#000000"><span style="background: transparent">TokenEntity</span></font></code><font color="#000000"><span style="background: transparent">
+and </span></font><code><font color="#000000"><span style="background: transparent">TokenColumn</span></font></code><font color="#000000"><span style="background: transparent">
+from this file, then passes them to </span></font><code><font color="#000000"><span style="background: transparent">XmlFastReader.setBP()</span></font></code><font color="#000000"><span style="background: transparent">
+to register with the parser.</span></font></span></span></p>
+<h2 class="ctl"><font face="Liberation Serif, serif"><span lang="en-US"><font color="#000000"><span style="background: transparent">03
+Usage Steps (from </span></font><code><font color="#000000"><span style="background: transparent">testXmlFastReader.java</span></font></code><font color="#000000"><span style="background: transparent">)</span></font></span></font></h2>
+<p><span lang="en-US"><font color="#000000"><span style="background: transparent">The
+example from </span></font><code><font color="#000000"><span style="background: transparent">test/testXmlFastReader.java</span></font></code><font color="#000000"><span style="background: transparent">
+demonstrates the full workflow in 6 steps:</span></font></span></p>
+<h3 class="ctl"><span style="display: inline-block; border: none; padding: 0cm"><font color="#000000"><font face="Liberation Serif, serif"><span lang="en-US"><span style="background: transparent"><b>1</b></span>
+Create Instance</span></span></font></font></h3>
+<pre style="margin-bottom: 0.5cm"><font color="#000000"><span lang="en-US"><span style="background: transparent">XmlFastReader reader = new XmlFastReader();</span></span></font></pre><p>
+<span lang="en-US"><font color="#000000"><span style="background: transparent">Creates
+the main API object, which will instantiate </span></font><code><font color="#000000"><span style="background: transparent">xmlBluePrint</span></font></code><font color="#000000"><span style="background: transparent">
+when </span></font><code><font color="#000000"><span style="background: transparent">setBP()</span></font></code><font color="#000000"><span style="background: transparent">
+is called.</span></font></span></p>
+<h3 class="ctl"><span style="display: inline-block; border: none; padding: 0cm"><font face="Liberation Serif, serif"><span lang="en-US"><font color="#000000"><b><span style="background: transparent">2</span></b></font></span><font color="#000000"><span style="background: transparent">
+Set Blueprint (</span></font><code><font color="#000000"><span style="background: transparent">setBP</span></font></code><font color="#000000"><span style="background: transparent">)</span></font></span></font></h3>
+<pre style="margin-bottom: 0.5cm"><font color="#000000"><span lang="en-US"><span style="background: transparent">reader.setBP(&quot;/home/wise0136/NetBeansProjects/Lab/BluePrint.bp&quot;);</span></span></font></pre><p>
+<span lang="en-US"><font color="#000000"><span style="background: transparent">Inside
+</span></font><code><font color="#000000"><span style="background: transparent">setBP()</span></font></code><font color="#000000"><span style="background: transparent">:</span></font></span></p>
+<ol>
+	<li><p style="margin-bottom: 0cm"><span lang="en-US"><font color="#000000"><span style="background: transparent">Creates
+	</span></font><code><font color="#000000"><span style="background: transparent">xmlBluePrint</span></font></code><font color="#000000"><span style="background: transparent">
+	(pipeline depth = 2, threads = 1) </span></font></span>
+	</p></li>
+	<li><p style="margin-bottom: 0cm"><span lang="en-US"><font color="#000000"><span style="background: transparent">Calls
+	</span></font><code><font color="#000000"><span style="background: transparent">BPParser.parseBP()</span></font></code><font color="#000000"><span style="background: transparent">
+	to read </span></font><code><font color="#000000"><span style="background: transparent">.bp</span></font></code><font color="#000000"><span style="background: transparent">
+	</span></font></span>
+	</p></li>
+	<li><p style="margin-bottom: 0cm"><span lang="en-US"><font color="#000000"><span style="background: transparent">Creates
+	</span></font><code><font color="#000000"><span style="background: transparent">TokenRoot</span></font></code><font color="#000000"><span style="background: transparent">
+	(bound to main thread + entity map) </span></font></span>
+	</p></li>
+	<li><p style="margin-bottom: 0cm"><span lang="en-US"><font color="#000000"><span style="background: transparent">Registers
+	</span></font><code><font color="#000000"><span style="background: transparent">EventHandlers.HD_Root</span></font></code><font color="#000000"><span style="background: transparent">
+	and </span></font><code><font color="#000000"><span style="background: transparent">HD_Error</span></font></code><font color="#000000"><span style="background: transparent">
+	</span></font></span>
+	</p></li>
+	<li><p style="margin-bottom: 0cm"><span lang="en-US"><font color="#000000"><span style="background: transparent">Registers
+	</span></font><code><font color="#000000"><span style="background: transparent">HD_Entity</span></font></code><font color="#000000"><span style="background: transparent">
+	per entity path and </span></font><code><font color="#000000"><span style="background: transparent">HD_Column</span></font></code><font color="#000000"><span style="background: transparent">
+	per column path </span></font></span>
+	</p></li>
+	<li><p><span lang="en-US"><font color="#000000"><span style="background: transparent">Calls
+	</span></font><code><font color="#000000"><span style="background: transparent">parser.run()</span></font></code><font color="#000000"><span style="background: transparent">
+	to start the parser </span></font></span>
+	</p></li>
+</ol>
+<p><span style="display: inline-block; border-top: none; border-bottom: none; border-left: 3.00pt solid #000000; border-right: none; padding-top: 0cm; padding-bottom: 0cm; padding-left: 0.05cm; padding-right: 0cm"><span lang="en-US"><strong><font color="#000000"><span style="background: transparent">Important:</span></font></strong><font color="#000000"><span style="background: transparent">
+Always call </span></font><code><font color="#000000"><span style="background: transparent">setBP()</span></font></code><font color="#000000"><span style="background: transparent">
+before </span></font><code><font color="#000000"><span style="background: transparent">parse()</span></font></code><font color="#000000"><span style="background: transparent">;
+otherwise it throws </span></font><code><font color="#000000"><span style="background: transparent">IllegalStateException</span></font></code><font color="#000000"><span style="background: transparent">.</span></font></span></span></p>
+<h3 class="ctl"><span style="display: inline-block; border: none; padding: 0cm"><font face="Liberation Serif, serif"><span lang="en-US"><font color="#000000"><b><span style="background: transparent">3</span></b></font></span><font color="#000000"><span style="background: transparent">
+Read XML as </span></font><code><font color="#000000"><span style="background: transparent">byte[]</span></font></code></span></font></h3>
+<pre><font color="#000000"><span lang="en-US"><span style="background: transparent">String file = &quot;/home/wise0136/NetBeansProjects/Lab/Case_1/TP099400018234140061000002564.xml&quot;;</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">byte[] job = Files.readAllBytes(Paths.get(file));</span></span></font></pre><p>
+<span lang="en-US"><font color="#000000"><span style="background: transparent">Reads
+the XML document fully into memory as a </span></font><code><font color="#000000"><span style="background: transparent">byte[]</span></font></code><font color="#000000"><span style="background: transparent">
+to pass into the parser.</span></font></span></p>
+<h3 class="ctl"><span style="display: inline-block; border: none; padding: 0cm"><font face="Liberation Serif, serif"><span lang="en-US"><font color="#000000"><b><span style="background: transparent">4</span></b></font></span><font color="#000000"><span style="background: transparent">
+Parse (</span></font><code><font color="#000000"><span style="background: transparent">parse()</span></font></code><font color="#000000"><span style="background: transparent">)</span></font></span></font></h3>
+<pre style="margin-bottom: 0.5cm"><font color="#000000"><span lang="en-US"><span style="background: transparent">HashMap&lt;String, String[][]&gt; ret = reader.parse(job, file);</span></span></font></pre><p>
+<span lang="en-US"><font color="#000000"><span style="background: transparent">Inside
+</span></font><code><font color="#000000"><span style="background: transparent">parse()</span></font></code><font color="#000000"><span style="background: transparent">:</span></font></span></p>
+<ol>
+	<li><p style="margin-bottom: 0cm"><span lang="en-US"><font color="#000000"><span style="background: transparent">Creates
+	new </span></font><code><font color="#000000"><span style="background: transparent">XmlToken</span></font></code><font color="#000000"><span style="background: transparent">
+	</span></font></span>
+	</p></li>
+	<li><p style="margin-bottom: 0cm"><span lang="en-US"><font color="#000000"><span style="background: transparent">Sets
+	</span></font><code><font color="#000000"><span style="background: transparent">XmlPackage</span></font></code><font color="#000000"><span style="background: transparent">
+	(byteBuffer = job, size = job.length, name = file) </span></font></span>
+	</p></li>
+	<li><p style="margin-bottom: 0cm"><span lang="en-US"><font color="#000000"><span style="background: transparent">Pushes
+	job to parser with </span></font><code><font color="#000000"><span style="background: transparent">parser.pushJob()</span></font></code><font color="#000000"><span style="background: transparent">
+	</span></font></span>
+	</p></li>
+	<li><p style="margin-bottom: 0cm"><span lang="en-US"><font color="#000000"><span style="background: transparent">Waits
+	for result from </span></font><code><font color="#000000"><span style="background: transparent">parser.pullJob()</span></font></code><font color="#000000"><span style="background: transparent">
+	(parks 200,000 ns per loop) until </span></font><code><font color="#000000"><span style="background: transparent">XmlToken</span></font></code><font color="#000000"><span style="background: transparent">
+	is returned </span></font></span>
+	</p></li>
+	<li><p><span lang="en-US"><font color="#000000"><span style="background: transparent">Splits
+	</span></font><code><font color="#000000"><span style="background: transparent">buffOP</span></font></code><font color="#000000"><span style="background: transparent">
+	(key = entity name, value = concatenated rows) into </span></font><code><font color="#000000"><span style="background: transparent">String[][]</span></font></code><font color="#000000"><span style="background: transparent">
+	</span></font></span>
+	</p></li>
+</ol>
+<p><span lang="en-US"><font color="#000000"><span style="background: transparent">Data
+format inside </span></font><code><font color="#000000"><span style="background: transparent">buffOP</span></font></code><font color="#000000"><span style="background: transparent">
+before splitting:</span></font></span></p>
+<pre style="margin-bottom: 0.5cm"><font color="#000000"><span lang="en-US"><span style="background: transparent">entityName~row1~row2~...</span></span></font></pre><p>
+<span lang="en-US"><font color="#000000"><span style="background: transparent">Rows
+are separated by </span></font><code><font color="#000000"><span style="background: transparent">~</span></font></code><font color="#000000"><span style="background: transparent">,
+and columns within each row are separated by </span></font><code><font color="#000000"><span style="background: transparent">`</span></font></code><font color="#000000"><span style="background: transparent">
+(backtick).</span></font></span></p>
+<h3 class="ctl"><span style="display: inline-block; border: none; padding: 0cm"><font color="#000000"><font face="Liberation Serif, serif"><span lang="en-US"><span style="background: transparent"><b>5</b></span>
+Process Results</span></span></font></font></h3>
+<pre><font color="#000000"><span lang="en-US"><span style="background: transparent">ret.forEach((key,val)-&gt;{</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">    // key = entity name (e.g., &quot;Invoids&quot;)</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">    // val = String[][] — rows × columns</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">    // val[0][0] = fileName, val[0][1] = first column, ...</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">    writeEntity(key,val,&quot;/path/to/output&quot;);</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">});</span></span></font></pre><p>
+<span lang="en-US"><font color="#000000"><span style="background: transparent">Sample
+write function from </span></font><code><font color="#000000"><span style="background: transparent">testXmlFastReader.java</span></font></code><font color="#000000"><span style="background: transparent">:</span></font></span></p>
+<pre><font color="#000000"><span lang="en-US"><span style="background: transparent">static void writeEntity(String file, String[][] rows, String path) throws Exception {</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">    String out = path+&quot;/&quot;+file+&quot;.txt&quot;;</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">    if (rows == null) return;</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">    String allRow = &quot;&quot;;</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">    for (int r = 0; r &lt; rows.length; r++) {</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">        String row = &quot;&quot;;</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">        for (int c = 0; c &lt; rows[r].length; c++) {</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">            row += &quot;,\&quot;&quot;+rows[r][c] +&quot;\&quot;&quot;;</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">        }</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">        allRow += row.substring(1)+&quot;\n&quot;;</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">    }</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">    Files.write(Paths.get(out), allRow.getBytes(StandardCharsets.UTF_8));</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">}</span></span></font></pre><p>
+<span lang="en-US"><font color="#000000"><span style="background: transparent">The
+output is a simple CSV: the first column is the file name (from
+</span></font><code><font color="#000000"><span style="background: transparent">XmlPackage.name</span></font></code><font color="#000000"><span style="background: transparent">),
+followed by other columns in the order defined in </span></font><code><font color="#000000"><span style="background: transparent">.bp</span></font></code><font color="#000000"><span style="background: transparent">.</span></font></span></p>
+<h3 class="ctl"><span style="display: inline-block; border: none; padding: 0cm"><font face="Liberation Serif, serif"><span lang="en-US"><font color="#000000"><b><span style="background: transparent">6</span></b></font></span><font color="#000000"><span style="background: transparent">
+Shutdown (</span></font><code><font color="#000000"><span style="background: transparent">shutdown</span></font></code><font color="#000000"><span style="background: transparent">)</span></font></span></font></h3>
+<pre style="margin-bottom: 0.5cm"><font color="#000000"><span lang="en-US"><span style="background: transparent">reader.shutdown();</span></span></font></pre><p>
+<span lang="en-US"><font color="#000000"><span style="background: transparent">Inside
+</span></font><code><font color="#000000"><span style="background: transparent">shutdown()</span></font></code><font color="#000000"><span style="background: transparent">,
+it calls </span></font><code><font color="#000000"><span style="background: transparent">parser.shutdown(true)</span></font></code><font color="#000000"><span style="background: transparent">
+to stop the pipeline and release resources.</span></font></span></p>
+<p><font color="#000000"><span lang="en-US"><span style="background: transparent"><b>Usage note:</b> You can call <code>setBP()</code> once, then call <code>parse()</code> multiple times — as many times as needed — until you finally call <code>shutdown()</code> to release the parser pipeline.</span></font></span></p>
+<h2 class="ctl"><font color="#000000"><font face="Liberation Serif, serif"><span lang="en-US"><span style="background: transparent">04
+Detailed Result Explanation</span></span></font></font></h2>
+<table cellpadding="2" cellspacing="2">
+	<thead>
+		<tr>
+			<th style="border: none; padding: 0cm"><p><font color="#000000"><span lang="en-US"><span style="background: transparent">Component</span></span></font></p>
+			</th>
+			<th style="border: none; padding: 0cm"><p><font color="#000000"><span lang="en-US"><span style="background: transparent">Meaning</span></span></font></p>
+			</th>
+			<th style="border: none; padding: 0cm"><p><font color="#000000"><span lang="en-US"><span style="background: transparent">Example</span></span></font></p>
+			</th>
+		</tr>
+	</thead>
+	<tbody>
+		<tr>
+			<td style="border: none; padding: 0cm"><p><span lang="en-US"><code><font color="#000000"><span style="background: transparent">HashMap&lt;String,
+				String[][]&gt;</span></font></code></span></p>
+			</td>
+			<td style="border: none; padding: 0cm"><p><font color="#000000"><span lang="en-US"><span style="background: transparent">Full
+				result — key = entity name, value = data table</span></span></font></p>
+			</td>
+			<td style="border: none; padding: 0cm"><p><span lang="en-US"><code><font color="#000000"><span style="background: transparent">ret.get(&quot;Invoids&quot;)</span></font></code></span></p>
+			</td>
+		</tr>
+		<tr>
+			<td style="border: none; padding: 0cm"><p><span lang="en-US"><code><font color="#000000"><span style="background: transparent">String[][]</span></font></code></span></p>
+			</td>
+			<td style="border: none; padding: 0cm"><p><font color="#000000"><span lang="en-US"><span style="background: transparent">Row
+				× column — first index is row</span></span></font></p>
+			</td>
+			<td style="border: none; padding: 0cm"><p><span lang="en-US"><code><font color="#000000"><span style="background: transparent">val[0][0]</span></font></code></span></p>
+			</td>
+		</tr>
+		<tr>
+			<td style="border: none; padding: 0cm"><p><span lang="en-US"><code><font color="#000000"><span style="background: transparent">val[r][0]</span></font></code></span></p>
+			</td>
+			<td style="border: none; padding: 0cm"><p><span lang="en-US"><font color="#000000"><span style="background: transparent">First
+				column = file name (from </span></font><code><font color="#000000"><span style="background: transparent">XmlPackage.name</span></font></code><font color="#000000"><span style="background: transparent">)</span></font></span></p>
+			</td>
+			<td style="border: none; padding: 0cm"><p><span lang="en-US"><code><font color="#000000"><span style="background: transparent">TP0994...</span></font></code></span></p>
+			</td>
+		</tr>
+		<tr>
+			<td style="border: none; padding: 0cm"><p><span lang="en-US"><code><font color="#000000"><span style="background: transparent">val[r][c]</span></font></code></span></p>
+			</td>
+			<td style="border: none; padding: 0cm"><p><span lang="en-US"><font color="#000000"><span style="background: transparent">Column
+				c in the order defined by </span></font><code><font color="#000000"><span style="background: transparent">.bp</span></font></code></span></p>
+			</td>
+			<td style="border: none; padding: 0cm"><p><span lang="en-US"><code><font color="#000000"><span style="background: transparent">&quot;SN123&quot;</span></font></code></span></p>
+			</td>
+		</tr>
+	</tbody>
+</table>
+<p><span style="display: inline-block; border-top: none; border-bottom: none; border-left: 3.00pt solid #000000; border-right: none; padding-top: 0cm; padding-bottom: 0cm; padding-left: 0.05cm; padding-right: 0cm"><span lang="en-US"><strong><font color="#000000"><span style="background: transparent">Row
+assembly format:</span></font></strong><font color="#000000"><span style="background: transparent">
+</span></font><code><font color="#000000"><span style="background: transparent">StringBuilder
+row = new StringBuilder(); row.append(fileName); ...
+row.append(&quot;`&quot;).append(rowBuffer[i]);</span></font></code><font color="#000000"><span style="background: transparent">
+— columns are separated by </span></font><code><font color="#000000"><span style="background: transparent">`</span></font></code><font color="#000000"><span style="background: transparent">,
+and rows by </span></font><code><font color="#000000"><span style="background: transparent">~</span></font></code><font color="#000000"><span style="background: transparent">.</span></font></span></span></p>
+<h2 class="ctl"><font face="Liberation Serif, serif"><span lang="en-US"><font color="#000000"><span style="background: transparent">05
+Core Algorithm Overview (</span></font><code><font color="#000000"><span style="background: transparent">xmlFastParser</span></font></code><font color="#000000"><span style="background: transparent">)</span></font></span></font></h2>
+<p><span lang="en-US"><font color="#000000"><span style="background: transparent">Although
+</span></font><code><font color="#000000"><span style="background: transparent">xmlFastReader</span></font></code><font color="#000000"><span style="background: transparent">
+is a simple API, the underlying </span></font><code><font color="#000000"><span style="background: transparent">xmlFastParser</span></font></code><font color="#000000"><span style="background: transparent">
+works as an event-driven pipeline:</span></font></span></p>
+<ul>
+	<li><p style="margin-bottom: 0cm"><span lang="en-US"><strong><font color="#000000"><span style="background: transparent">EV_OPEN_TAG
+	/ EV_CLOSE_TAG</span></font></strong><font color="#000000"><span style="background: transparent">:
+	Triggers row assembly via </span></font><code><font color="#000000"><span style="background: transparent">HD_Entity</span></font></code><font color="#000000"><span style="background: transparent">
+	and </span></font><code><font color="#000000"><span style="background: transparent">HD_Root</span></font></code><font color="#000000"><span style="background: transparent">
+	</span></font></span>
+	</p></li>
+	<li><p style="margin-bottom: 0cm"><span lang="en-US"><strong><font color="#000000"><span style="background: transparent">EV_INNER_TEXT</span></font></strong><font color="#000000"><span style="background: transparent">:
+	Stores text between tags into columns via </span></font><code><font color="#000000"><span style="background: transparent">HD_Column</span></font></code><font color="#000000"><span style="background: transparent">
+	</span></font></span>
+	</p></li>
+	<li><p style="margin-bottom: 0cm"><span lang="en-US"><strong><font color="#000000"><span style="background: transparent">EV_ATTR</span></font></strong><font color="#000000"><span style="background: transparent">:
+	Stores attribute values based on attribute name hash </span></font></span>
+	</p></li>
+	<li><p><span lang="en-US"><strong><font color="#000000"><span style="background: transparent">EV_ERROR
+	/ EV_RESET_IN_SAFEMODE</span></font></strong><font color="#000000"><span style="background: transparent">:
+	</span></font><code><font color="#000000"><span style="background: transparent">HD_Error</span></font></code><font color="#000000"><span style="background: transparent">
+	handles errors and only allows continuation for safe-mode reset
+	events </span></font></span>
+	</p></li>
+</ul>
+<p><span lang="en-US"><font color="#000000"><span style="background: transparent">Therefore,
+users do not need to worry about parsing themselves — just define
+</span></font><code><font color="#000000"><span style="background: transparent">.bp</span></font></code><font color="#000000"><span style="background: transparent">,
+then pass </span></font><code><font color="#000000"><span style="background: transparent">byte[]</span></font></code><font color="#000000"><span style="background: transparent">
+through </span></font><code><font color="#000000"><span style="background: transparent">XmlFastReader.parse()</span></font></code><font color="#000000"><span style="background: transparent">.</span></font></span></p>
+<h2 class="ctl"><font face="Liberation Serif, serif"><span lang="en-US"><font color="#000000"><span style="background: transparent">06
+Full Example Code (from </span></font><code><font color="#000000"><span style="background: transparent">testXmlFastReader.java</span></font></code><font color="#000000"><span style="background: transparent">)</span></font></span></font></h2>
+<pre><font color="#000000"><span lang="en-US"><span style="background: transparent">package xmlFastReader;</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">import java.nio.file.*;</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">import java.util.*;</span></span></font>
+
+<font color="#000000"><span lang="en-US"><span style="background: transparent">public class testXmlFastReader {</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">    public static void main(String[] args) throws Exception {</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">        XmlFastReader reader = new XmlFastReader();</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">        reader.setBP(&quot;/home/wise0136/NetBeansProjects/Lab/BluePrint.bp&quot;);</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">        String file = &quot;/home/wise0136/NetBeansProjects/Lab/Case_1/TP099400018234140061000002564.xml&quot;;</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">        byte[] job = Files.readAllBytes(Paths.get(file));</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">        HashMap&lt;String, String[][]&gt; ret = reader.parse(job, file);</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">        ret.forEach((key,val)-&gt;{</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">            try {</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">                writeEntity(key,val,&quot;/home/wise0136/NetBeansProjects/xmlFastReader/xmlFastReader/target&quot;);</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">            } catch(Exception e){</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">                System.out.println(e.getMessage());</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">                e.printStackTrace();</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">            }</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">        });</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">        System.out.println(&quot;testXmlFastReader finished — ret keys: &quot; + ret.keySet());</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">        reader.shutdown();</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">    }</span></span></font>
+
+<font color="#000000"><span lang="en-US"><span style="background: transparent">    static void writeEntity(String file, String[][] rows, String path) throws Exception {</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">        String out = path+&quot;/&quot;+file+&quot;.txt&quot;;</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">        if (rows == null) return;</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">        String allRow = &quot;&quot;;</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">        for (int r = 0; r &lt; rows.length; r++) {</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">            String row = &quot;&quot;;</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">            for (int c = 0; c &lt; rows[r].length; c++) {</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">                row += &quot;,\&quot;&quot;+rows[r][c] +&quot;\&quot;&quot;;</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">            }</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">            allRow += row.substring(1)+&quot;\n&quot;;</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">        }</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">        Files.write(Paths.get(out), allRow.getBytes(java.nio.charset.StandardCharsets.UTF_8));</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">        System.out.println(&quot;Wrote &quot; + out + &quot; (&quot; + rows.length + &quot; rows)&quot;);</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">    }</span></span></font>
+<font color="#000000"><span lang="en-US"><span style="background: transparent">}</span></span></font></pre><h2 class="ctl">
+<font color="#000000"><font face="Liberation Serif, serif"><span lang="en-US"><span style="background: transparent">07
+Warnings and Recommendations</span></span></font></font></h2>
+<ul>
+	<li><p style="margin-bottom: 0cm"><span lang="en-US"><font color="#000000"><span style="background: transparent">Call
+	</span></font><code><font color="#000000"><span style="background: transparent">setBP()</span></font></code><font color="#000000"><span style="background: transparent">
+	before </span></font><code><font color="#000000"><span style="background: transparent">parse()</span></font></code><font color="#000000"><span style="background: transparent">
+	— otherwise throws </span></font><code><font color="#000000"><span style="background: transparent">IllegalStateException</span></font></code><font color="#000000"><span style="background: transparent">
+	</span></font></span>
+	</p></li>
+	<li><p style="margin-bottom: 0cm"><span lang="en-US"><code><font color="#000000"><span style="background: transparent">.bp</span></font></code><font color="#000000"><span style="background: transparent">
+	must include both </span></font><code><font color="#000000"><span style="background: transparent">file:</span></font></code><font color="#000000"><span style="background: transparent">
+	and </span></font><code><font color="#000000"><span style="background: transparent">entity:</span></font></code><font color="#000000"><span style="background: transparent">
+	— </span></font><code><font color="#000000"><span style="background: transparent">BPParser</span></font></code><font color="#000000"><span style="background: transparent">
+	will not create entities without a path </span></font></span>
+	</p></li>
+	<li><p style="margin-bottom: 0cm"><span lang="en-US"><font color="#000000"><span style="background: transparent">Results
+	in </span></font><code><font color="#000000"><span style="background: transparent">buffOP</span></font></code><font color="#000000"><span style="background: transparent">
+	may be empty if XML does not match XPath in </span></font><code><font color="#000000"><span style="background: transparent">.bp</span></font></code><font color="#000000"><span style="background: transparent">
+	</span></font></span>
+	</p></li>
+	<li><p style="margin-bottom: 0cm"><span lang="en-US"><font color="#000000"><span style="background: transparent">Use
+	</span></font><code><font color="#000000"><span style="background: transparent">shutdown()</span></font></code><font color="#000000"><span style="background: transparent">
+	after finishing to release parser pipeline resources </span></font></span>
+	</p></li>
+	<li><p><span lang="en-US"><font color="#000000"><span style="background: transparent">Output
+	is </span></font><code><font color="#000000"><span style="background: transparent">String[][]</span></font></code><font color="#000000"><span style="background: transparent">,
+	not objects, so it is easy to write as CSV / TXT </span></font></span>
+	</p></li>
+</ul>
+<p><span lang="en-US"><font color="#000000"><span style="background: transparent">xmlFastReader
+User Manual — created from source </span></font><code><font color="#000000"><span style="background: transparent">testXmlFastReader.java</span></font></code><font color="#000000"><span style="background: transparent">
+and API structure in </span></font><code><font color="#000000"><span style="background: transparent">java/xmlFastReader/</span></font></code><font color="#000000"><span style="background: transparent"><br/>
+Generated
+for the XMLFastParser project — 2026-09-18 </span></font></span>
+</p>
+</body>
+</html>
