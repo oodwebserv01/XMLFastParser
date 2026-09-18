@@ -1,12 +1,58 @@
-# xmlFastParser & Xml2Txt
+# XMLFastParser
 
-[![Java Version](https://img.shields.io/badge/Java-8%2B-blue.svg)](https://www.java.com)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey.svg)]()
+**Version:** 01.02.00  
+**XMLFastParser** is a high-performance Java library designed for fast and efficient XML parsing, processing, and data extraction.
 
-**xmlFastParser** is a high-performance, open-source, multithreaded Java XML parsing library designed for large-scale data processing and high-throughput streaming. By combining a **Finite State Machine (FSM)** for rapid syntax processing with a **TreeGraph** data structure for navigating node hierarchies, it efficiently locates target XML tags and triggers user-defined callback handlers upon discovery.
+---
 
-In addition to standard parsing, `xmlFastParser` features **Statistical Speculative Navigation**—it gathers runtime structural metrics to predict upcoming tag locations and jump directly to relevant data pointers without scanning every character line-by-line. It is also inherently **Fault-Tolerant**, allowing parsing to proceed seamlessly despite minor or non-critical XML syntax errors as long as the target data path remains traversable.
+## 🚀 What's New in Version 01.02.00
+
+* **Introducing `xmlFastReader` Subproject**: Added a new, easy-to-use high-level API layer designed to simplify XML parsing operations.
+* **Reusable Binding Points (`setBP`)**: Configure your target XML binding paths once using `setBP` and execute `parse()` repeatedly across multiple XML inputs or iterations without overhead.
+* **Resource Management (`shutdown`)**: Built-in `shutdown()` method to clean up resources, release memory, and finalize processing gracefully.
+
+---
+
+## 📦 Subprojects
+
+### 1. `xmlFastReader` (Simplified High-Level API)
+A developer-friendly wrapper focused on productivity and repetitive parsing workflows.
+
+#### Key Features:
+- **`setBP(...)`**: Define binding points for XML tags/elements.
+- **`parse(...)`**: Run parsing logic repeatedly using pre-configured binding points.
+- **`shutdown()`**: Release resources after parsing completes.
+
+📖 **Detailed User Manual**:  
+For step-by-step setup, configuration, and complete code samples, refer to the [xmlFastReader User Manual](https://github.com/oodwebserv01/XMLFastParser/blob/main/java/xmlFastReader/docs/UserManual.html).
+
+---
+
+### 2. Core `XMLFastParser`
+The low-level, high-speed core engine providing the underlying parsing capabilities for high-performance requirements.
+
+---
+
+## 💡 Quick Start Example (`xmlFastReader`)
+
+```java
+import xmlFastReader.XMLFastReader;
+
+public class Main {
+    public static void main(String[] args) {
+        XMLFastReader reader = new XMLFastReader();
+
+        // 1. Set Binding Point(s)
+        reader.setBP("/root/element");
+
+        // 2. Parse XML data multiple times as needed
+        reader.parse(xmlData1);
+        reader.parse(xmlData2);
+
+        // 3. Shutdown and clean up resources
+        reader.shutdown();
+    }
+}
 
 ---
 
@@ -23,11 +69,14 @@ In addition to standard parsing, `xmlFastParser` features **Statistical Speculat
 
 ## Repository Structure
 
-```text
-.
-└── java/
-    ├── xmlFastParser/     # Core multithreaded Java XML parsing library
-    └── Xml2Txt/           # Example application for XML-to-TXT/CSV conversion & ZIP processing
+XMLFastParser/
+├── java/
+│   ├── xmlFastParser/     # Core multithreaded Java XML parsing library
+│   └── Xml2Txt/           # Example application for XML-to-TXT/CSV conversion & ZIP processing
+│   ├── xmlFastReader/             # Easy-to-use API wrapper
+│       └── docs/
+│           └── UserManual.html    # Complete documentation
+└── README.md
 java/xmlFastParser/: The core engine containing the FSM parser, TreeGraph structure, speculative algorithms, and callback interfaces.
 
 java/Xml2Txt/: An example application built on top of xmlFastParser. It reads configuration files (.bp) and converts raw or ZIP-compressed XML data into a CSV-like .txt format optimized for database ingestion.
